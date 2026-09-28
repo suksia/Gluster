@@ -1,4 +1,8 @@
+import logging
 from pathlib import Path
+from utils import strip_split
+
+logger = logging.getLogger('Gluster')
 
 POTCAR_DIR = Path('/storage/group/xvw5285/default/atomistic_pkgs/potpaw_PBE.54/')
 
@@ -6,15 +10,15 @@ class VaspFile:
     def __init__(self):
         self.name = self.__class__.__name__
         self.lines: list[str] = None
-        self.path: Path = None
+        self.last_read_path: Path = None
     
     def load(self, from_path: Path = None, from_string: str = None):
         if from_path:
             if not from_path.exists():
                 raise FileNotFoundError(f'[{self.name}] File not found at {from_path}')
 
-            self.path = file_path
-            with open(file_path, 'r') as f:
+            self.last_read_path = from_path
+            with open(from_path, 'r') as f:
                 lines = f.readlines()
             lines = [l.strip('\n') for l in lines] # remove any \n characters
             lines = [l for l in lines if l.strip() != ''] # remove blank lines
@@ -23,6 +27,7 @@ class VaspFile:
         elif from_string:
             self.lines = from_string.split('\n')
             self.lines = [l+'\n' for l in self.lines]
+            
         return self
 
     def write(self, path: Path):
@@ -32,6 +37,8 @@ class VaspFile:
         with open(path, 'w') as f:
             f.writelines(self.lines)
 
+        logger.debug(f"{self.name}: Wrote lines to {path}")
+        
 class VaspIncar(VaspFile):
     pass
 

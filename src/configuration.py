@@ -2,8 +2,9 @@ from copy import deepcopy
 from vasp_file import *
 import numpy as np
 from pathlib import Path
-import subprocess, os
+import subprocess, os, shutil, time
 from ase.io import read
+from math import floor
 
 ELEMENTS = {
     'W': {'mass': 183.84, 'a0': 3.165},
@@ -64,6 +65,7 @@ class Configuration:
         self.M = len(self.comp) # number of species
         self.N = None # number of lattice points
         self.process = None
+        self.start_time, self.process_time = None, None
 
         # dictionaries mapping element name to index (e.g., W -> 1 and 1 -> W)
         self.species_to_spi = {sp: spi for spi, sp in enumerate(self.comp.keys())}
@@ -167,13 +169,15 @@ class Configuration:
         vasp_cmd = ['srun', f'--ntasks={self.ncores}', '--export=ALL', 'vasp_std']
         self.process = subprocess.Popen(vasp_cmd, cwd=self.cdir, stdout=self.outfile, stderr=subprocess.STDOUT)
         self.status = 1
+        self.start_time = time.perf_counter()
 
     def poll_process(self):
         poll = self.process.poll()
         if poll == 0:
             self.status = 2
-            self.outfile.close()
-            outcar = VaspOutcar(from_path = self.cdir / 'OUTCAR')
+            outcar = VaspOutcar().load(from_path = self.cdir / 'OUTCAR')
             self.energy = outcar.get_energy()
             with open(self.cdir / 'energy.out', 'w') as f:
                 f.write(f'{self.energy:4.8f}')
+            self.process_time = time.perf_counter() - self.start_time
+            self.outfile.write(f'Total wall time: {floor(self.process_time/3600)}hrs {floor((self.process_time/60)%60)}min {round((self.process_time%60))}sec')

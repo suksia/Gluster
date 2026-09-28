@@ -1,7 +1,10 @@
-import argparse, yaml, time
+import argparse, yaml, time, logging, sys
 from pathlib import Path
 from copy import deepcopy
 from configuration import Configuration, NTASKS
+
+logging.basicConfig(stream=sys.stdout, level=logging.DEBUG, format='[%(asctime)s] %(message)s', datefmt='%H:%M:%S')
+logger = logging.getLogger('Gluster')
 
 parser = argparse.ArgumentParser()
 parser.add_argument('input', type=str, help='Path to input file')
@@ -12,6 +15,10 @@ assert input_fp.exists(), f'[{input_fp}] File does not exist'
 
 with open(input_fp, 'r') as f:
     input_yml: dict = yaml.safe_load(f)
+with open(input_fp, 'r') as f:
+    input_yml_lines = f.readlines()
+
+logger.debug(f'Loaded input file {input_fp}')
 
 # create directory
 top_dir = Path(input_yml['dir']) / input_yml['name']
@@ -19,7 +26,7 @@ top_dir = Path(input_yml['dir']) / input_yml['name']
 if top_dir.parent.exists() is False:
     raise ValueError(f'Directory {top_dir.parent} does not exist')
 
-top_dir.mkdir(exist_ok=True) 
+top_dir.mkdir(exist_ok=True)
 
 # initialize configurations
 configs = deepcopy(input_yml['configurations'])
@@ -37,6 +44,8 @@ for conf_id, conf_dict in configs.items():
 
     configs[conf_id] = Configuration(conf_id, conf_dir,conf_dict)
 
+logger.debug(f'Initialized configurations in {top_dir}')
+
 # queue configs
 queue = {}
 for cid, conf in configs.items():
@@ -45,6 +54,7 @@ for cid, conf in configs.items():
 
 # starting launch jobs from the queue
 num_available_cores = NTASKS
+
 while len(queue):
     # launch jobs
     for cid, conf in queue.items():
@@ -52,7 +62,7 @@ while len(queue):
             continue
 
         if conf.ncores > NTASKS:
-            raise ValueError(f"[Config {conf.cid}] Too many cores requested. Need {conf.ncores} but only have {NTASKS}")
+            raise ValueError(f"Too many cores requested for config {cid}. Need {conf.ncores} but only have a maximum of {NTASKS}")
         elif num_available_cores < conf.ncores:
             continue
         
@@ -64,6 +74,7 @@ while len(queue):
 
         num_available_cores -= conf.ncores
         conf.status = 1
+        logger.debug(f'Running VASP on config {cid} with {conf.ncores} cores (available cores: {num_available_cores})')
         time.sleep(0.5)
     
     # check statuses
@@ -75,6 +86,9 @@ while len(queue):
         elif conf.status == 2:
             num_available_cores += conf.ncores
             finished.append(cid)
-    
+            logger.debug(f'VASP finished for config {cid} (available cores: {num_available_cores})')
+
     for fin_cid in finished:
         queue.pop(fin_cid)
+
+# create database for cluster expansion
