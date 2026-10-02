@@ -8,6 +8,7 @@ logger = logging.getLogger('Gluster')
 
 parser = argparse.ArgumentParser()
 parser.add_argument('input', type=str, help='Path to input file')
+parser.add_argument('--check-basis', action=argparse.BooleanOptionalAction)
 args = parser.parse_args()
 
 input_fp = Path(args.input).resolve()
@@ -28,24 +29,28 @@ if top_dir.parent.exists() is False:
 
 top_dir.mkdir(exist_ok=True)
 
-# initialize configurations
+# ----------------- configurations ----------------- #
+
 configs = deepcopy(input_yml['configurations'])
 
 for conf_id, conf_dict in configs.items():
-    # create directory
     conf_dir = top_dir / str(conf_id)
     conf_dir.mkdir(exist_ok=True)
+    configs[conf_id] = Configuration(conf_id, conf_dir, conf_dict)
 
-    # initialize configuration object
-    if 'a0' not in conf_dict.keys():
-        conf_dict['a0'] = None
-    if 'order' not in conf_dict.keys():
-        conf_dict['order'] = None
+logger.debug(f'Initialized {len(configs)} configurations')
 
-    configs[conf_id] = Configuration(conf_id, conf_dir,conf_dict)
+Configuration.write_basis(top_dir / 'basis.out')
+logger.debug(f"Wrote computed bases to {top_dir / 'basis.out'}")
+
+if args.check_basis:
+    logger.debug(f'Detected --check-basis flag. Exiting...')
+    sys.exit()
 
 logger.debug(f'Initialized configurations in {top_dir}')
 
+# ----------------- run VASP ----------------- #
+"""
 # queue configs
 queue = {}
 for cid, conf in configs.items():
@@ -92,3 +97,4 @@ while len(queue):
         queue.pop(fin_cid)
 
 # create database for cluster expansion
+"""

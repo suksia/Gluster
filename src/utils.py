@@ -10,3 +10,10 @@ def strip_split(s: str, sep=None, item_type=None):
         return s
     else:
         raise ValueError(f'[{item_type}] Invalid item type. Choose None, int, or float')
+
+def product(x: list[int|float]):
+    """Compute the product of items in a list, similar to the built-in sum()."""
+    prod = 1
+    for v in x:
+        prod *= v
+    return prod
