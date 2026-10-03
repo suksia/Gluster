@@ -68,7 +68,7 @@ class Configuration(object):
         basis_points = []
         for f in frac_positions:
             if not any(np.allclose(f, x) for x in basis_points):
-                basis_points.append(tuple(f))
+                basis_points.append(tuple([float(fp) for fp in f]))
             if len(basis_points) == num_basis_points:
                 break
 
@@ -148,21 +148,21 @@ class Configuration(object):
             bp_found = False
             for bp in self.chemical_basis.keys():
                 if np.allclose(np.array(bp), f_reduced):
-                    bp_found = copy(bp)
+                    bp_found = bp
             if bp_found is False:
                 raise ValueError(f"({self.cid}) Could not match supercell position r={position}, f(reduced)={f_reduced} with any chemical basis point. Please investigate")
             else:
-                lattice_points_per_basis_point[bp].append(position)
+                lattice_points_per_basis_point[bp_found].append(position)
         
         # allocate chemical species for each basis point
         species_per_basis_point = {bp: {sp: 0 for sp in self.comp.keys()} for bp in self.chemical_basis.keys()}
         for bp, chem_map in self.chemical_basis.items():
             num_lattice_points = len(lattice_points_per_basis_point[bp])
             for sp in self.comp.keys():
-                if sp not in chem_map.keys():
-                    species_per_basis_point[bp] = {sp: 0}
+                if sp in chem_map.keys():
+                    species_per_basis_point[bp][sp] = round(num_lattice_points*chem_map[sp])
                 else:
-                    species_per_basis_point[bp] = {sp: round(num_lattice_points*chem_map[sp])}
+                    species_per_basis_point[bp][sp] = 0
 
         # write information to file
         with open(self.cdir / 'composition.out', 'w') as f:
@@ -196,12 +196,13 @@ class Configuration(object):
                 species += [sp]*num
             species = rng.permutation(species)
             for i, sp in enumerate(species):
-                self.lattice[sp].append(lattice_points[i])
+                self.lattice[sp].append([float(p) for p in lattice_points[i]])
 
         with open(self.cdir / 'supercell.xyz', 'w') as f:
-            f.write(f'{len(self.lattice)}\n\n')
-            for sp, pos in self.lattice.items():
-                f.write(f"{sp} {pos[0]:3.8f} {pos[1]:3.8f} {pos[2]:3.8f}\n")
+            f.write(f'{num_atoms_in_super}\n\n')
+            for sp, positions in self.lattice.items():
+                for pos in positions:
+                    f.write(f"{sp} {pos[0]:3.8f} {pos[1]:3.8f} {pos[2]:3.8f}\n")
         
     def _check_transformation_matrix(self):
         if self.transform.shape != (3,3):
