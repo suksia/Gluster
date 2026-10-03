@@ -49,26 +49,22 @@ class VaspPoscar(VaspFile):
         elif from_string:
             super().load(from_string=from_string)
         elif from_data:
-            lines = ['POSCAR\n']
+            lines = [f'Configuration {from_data['cid']}\n']
             lines.append('1.000\n')
-            lines.append(f"{from_data['size']:3.8f}\t{0:3.8f}\t{0:3.8f}\n")
-            lines.append(f"{0:3.8f}\t{from_data['size']:3.8f}\t{0:3.8f}\n")
-            lines.append(f"{0:3.8f}\t{0:3.8f}\t{from_data['size']:3.8f}\n")
+            lines.append(f"{from_data['size'][0]:3.8f}\t{0:3.8f}\t{0:3.8f}\n")
+            lines.append(f"{0:3.8f}\t{from_data['size'][1]:3.8f}\t{0:3.8f}\n")
+            lines.append(f"{0:3.8f}\t{0:3.8f}\t{from_data['size'][2]:3.8f}\n")
 
             sp_line, nat_line, pos_line = "", "", []
-            low_ri = 0
-            for sp, nat in from_data['composition'].items():
+            for sp, lps in from_data['lattice'].items():
                 sp_line += f"{sp:3} "
-                nat_line += f"{nat:<3} "
-                high_ri = low_ri + nat
-                for ri in range(low_ri, high_ri):
-                    pos = from_data['positions'][ri] / from_data['size']
+                nat_line += f"{len(lps):<3} "
+                for pos in lps:
                     pos_line.append(f"{pos[0]:3.8f}\t{pos[1]:3.8f}\t{pos[2]:3.8f}\n")
-                low_ri = high_ri
 
             lines.append(sp_line+'\n')
             lines.append(nat_line+'\n')
-            lines.append('Direct'+'\n')
+            lines.append('Cartesian'+'\n')
             lines += pos_line
             self.lines = lines
             

@@ -26,6 +26,8 @@ class Configuration(object):
         self.size = conf_dict['size']
         self.comp: dict[str, int] = conf_dict['comp']
         self.seed = conf_dict['seed']
+        self.lattice = None
+        self.a0 = None
 
         self.incar: VaspIncar = conf_dict['incar']
         self.poscar: VaspPoscar = conf_dict['poscar']
@@ -37,6 +39,8 @@ class Configuration(object):
         self.energy = None
         self.Atoms = None
         self.status = 0
+        self.process = None
+        self.start_time, self.process_time = None, None
 
         if self.load_energy():
             self.status = 2
@@ -68,7 +72,7 @@ class Configuration(object):
         basis_points = []
         for f in frac_positions:
             if not any(np.allclose(f, x) for x in basis_points):
-                basis_points.append(tuple([float(fp) for fp in f]))
+                basis_points.append(tuple([float(np.round(fp, 5)) for fp in f]))
             if len(basis_points) == num_basis_points:
                 break
 
@@ -79,21 +83,29 @@ class Configuration(object):
         self.A_chem = A_prim @ self.transform
 
         with open(self.cdir / 'basis.out', 'w') as f:
+            f.write('Chemical lattice vectors (A(chem) = A(prim) @ P, cols, a0=1)')
             for i in range(3):
                 lv = np.round(self.A_chem[:,i], 6)
                 f.write(f"{lv[0]:2.6f}\t{lv[1]:2.6f}\t{lv[2]:2.6f}\n")
-            f.write('\n')
+            f.write('\nChemical basis positions (b(chem) = Pinv @ n mod 1, frac)\n')
             for bp in basis_points:
                 f.write(f"{bp[0]:2.6f}\t{bp[1]:2.6f}\t{bp[2]:2.6f}\n")
-        
+            f.write('\nChemical lattice positions (r(chem) = A(chem) @ b(chem))\n')
+            for bp in basis_points:
+                bp = [float(v) for v in self.A_chem @ np.array(bp)]
+                f.write(f"{bp[0]:2.6f}\t{bp[1]:2.6f}\t{bp[2]:2.6f}\n")
+            
         # compare computed basis positions with provided ones
         self.chemical_basis = {f: None for f in basis_points}
         if self.basis:
+            if len(self.basis) != len(self.chemical_basis):
+                raise ValueError(f"({self.cid}) Insufficient number of basis points provided. Expected {len(self.chemical_basis)}, got {len(self.basis)}")
             for bp_user, chem_map in self.basis.items():
                 bp_found = False
                 for bp in basis_points:
-                    if np.allclose(np.array(bp_user), np.array(bp)):
+                    if np.allclose(np.array(bp_user), np.array(bp), atol=1e-2):
                         bp_found = bp
+                        break
                 if bp_found is False:
                     raise ValueError(f"({self.cid}) Basis atom at {bp_user} does not match the specified transform matrix. Enumerated positions: {basis_points}")
                 else:
@@ -167,12 +179,15 @@ class Configuration(object):
         # write information to file
         with open(self.cdir / 'composition.out', 'w') as f:
             for bp in self.chemical_basis.keys():
+                f.write('Chemical basis position (frac)\n')
                 f.write(f"{bp[0]:2.6f}\t{bp[1]:2.6f}\t{bp[2]:2.6f}\n\n")
 
+                f.write('\nSupercell lattice position\n')
                 for lp in lattice_points_per_basis_point[bp]:
                     f.write(f"{lp[0]:2.6f}\t{lp[1]:2.6f}\t{lp[2]:2.6f}\n")
                 f.write('\n')
 
+                f.write('\nDecorated species count\n')
                 for sp, num in species_per_basis_point[bp].items():
                     f.write(f"{sp}: {num}\n")
                 f.write('\n\n')
@@ -183,7 +198,7 @@ class Configuration(object):
             for sp_dict in species_per_basis_point.values():
                 num_sp_needed += sp_dict[sp]
             if num_sp_needed != num_sp_comp:
-                raise ValueError(f"({self.cid}) Composition incompatible with chemical basis. Need {num_sp_needed} {sp} atoms, but only {num_sp_comp} in composition")
+                raise ValueError(f"({self.cid}) Composition incompatible with chemical basis. Need {num_sp_needed} {sp} atoms, but {num_sp_comp} in composition")
 
         # define lattice by randomly assigning species to lattice points
         rng = np.random.default_rng(seed=self.seed)
@@ -203,6 +218,10 @@ class Configuration(object):
             for sp, positions in self.lattice.items():
                 for pos in positions:
                     f.write(f"{sp} {pos[0]:3.8f} {pos[1]:3.8f} {pos[2]:3.8f}\n")
+
+        poscar_data = {'cid': self.cid, 'size': [self.a0*self.size[i] for i in self.size], 'lattice': self.lattice}
+        if self.poscar is None:
+            self.poscar = VaspPoscar().load(from_data=poscar_data)
         
     def _check_transformation_matrix(self):
         if self.transform.shape != (3,3):
@@ -228,17 +247,32 @@ class Configuration(object):
                     raise ValueError(f"({self.cid}) Transformation matrix element {el1} must be less than {el2}")
         
         if colc:
-            for el1, el2 in zip([(0,1), (0,2), (1,2)], [(1,1), (2,2), (2,2)]):
+            for el1, el2 in zip([(0,1), (0,2), (1,2)], [(0,0), (0,0), (1,1)]):
                 if self.transform[el1] >= self.transform[el2]:
                     raise ValueError(f"({self.cid}) Transformation matrix element {el1} must be less than {el2}")
                 
     def write_vasp_files(self, write_dir: Path):
+        success = {'INCAR': False, 'POSCAR': False, 'KPOINTS': False, 'POTCAR': False}
         if not write_dir.exists():
             raise FileNotFoundError(f"Directory not found {write_dir}")
-        self.incar.write(write_dir / 'INCAR')
-        self.kpoints.write(write_dir / 'KPOINTS')
-        self.poscar.write(write_dir / 'POSCAR')
-        self.potcar.write(write_dir / 'POTCAR')
+        
+        if self.incar is not None:
+            self.incar.write(write_dir / 'INCAR')
+            success['INCAR'] = True
+
+        if self.poscar is not None:
+            self.poscar.write(write_dir / 'POSCAR')
+            success['POSCAR'] = True
+
+        if self.kpoints is not None:
+            self.kpoints.write(write_dir / 'KPOINTS')
+            success['KPOINTS'] = True
+
+        if self.potcar is not None:
+            self.potcar.write(write_dir / 'POTCAR')
+            success['POTCAR'] = True
+
+        return success
     
     def load_energy(self):
         """Attempts to load POSCAR data and obtain energy for cluster expansion."""

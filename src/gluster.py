@@ -31,7 +31,7 @@ top_dir.mkdir(exist_ok=True)
 
 # ----------------- configurations ----------------- #
 
-configs = deepcopy(input_yml['configurations'])
+configs: dict[int, Configuration] = deepcopy(input_yml['configurations'])
 
 for conf_id, conf_dict in configs.items():
     conf_dir = top_dir / str(conf_id)
@@ -48,9 +48,9 @@ if args.check_basis:
 logger.debug(f'Initialized configurations in {top_dir}')
 
 # ----------------- run VASP ----------------- #
-"""
+
 # queue configs
-queue = {}
+queue: dict[int, Configuration] = {}
 for cid, conf in configs.items():
     if conf.status == 0:
         queue[cid] = conf
@@ -70,9 +70,13 @@ while len(queue):
             continue
         
         # prepare directory and start job
-        conf.create_lattice()
-        conf.wipe_cdir()
-        conf.write_vasp_files(conf.cdir)
+        write_success = conf.write_vasp_files(conf.cdir)
+        for fn, value in write_success.items():
+            if value is False:
+                conf.status = 2
+                logger.debug(f"Could not write {fn} for config {cid}. Skipping it")
+                continue
+
         conf.run_vasp()
 
         num_available_cores -= conf.ncores
@@ -95,4 +99,3 @@ while len(queue):
         queue.pop(fin_cid)
 
 # create database for cluster expansion
-"""
