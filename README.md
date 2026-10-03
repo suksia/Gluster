@@ -2,7 +2,7 @@ _Gluster_ is Pythonic glue code connecting VASP and the [icet](https://icet.mate
 
 # Stage 1: Generating Configurations
 
-Configurations with arbitrary order can be described by the _chemical basis_, which forms a superlattice of the underlying lattice (i.e., bcc, fcc, hcp). It contains $Q$ lattice points along with a mapping between said lattice points and a set of occupancy probabilities $\{p_{\sigma_i}\}$, where $\sigma_i=0,1,...,M$ are the allowed species on site $i$ and $M$ is the alloy order (binary, ternary, ...).
+Configurations with arbitrary order can be described by a _chemical basis_, which forms a superlattice of the underlying lattice (i.e., bcc, fcc, hcp). It contains $Q$ lattice points along with a mapping between said lattice points and a set of occupancy probabilities $\{p_{\sigma_i}\}$, where $\sigma_i=0,1,...,M$ are the allowed species on site $i$ and $M$ is the alloy order (binary, ternary, ...).
 
 A chemical basis $\mathbf{A}'$ is constructed by applying a transformation matrix $\mathbf{P}$ in Hermite normal form (HNF) to the primitive basis $\mathbf{A}$. HNF requires $$\mathbf{P} = \begin{pmatrix} a & 0 & 0 \\ b & c & 0 \\ d & f & g \end{pmatrix}, \qquad 0\leq b < c, \qquad 0 \leq d,\,f < g,$$ using the row-convention form. Column-convention form would be written in the same way as $\mathbf{P}^{\mathsf{T}}$ and produces a different basis. If $\mathbf{A}$ is written with the lattice vectors as column vectors, $$\mathbf{A}' = \mathbf{A}\mathbf{P}.$$ Since $Q=|\det\mathbf{P}|$, the chemical basis usually contains additional lattice points. These points can be determined algorithmically by enumerating a sufficient set of integer vectors $\mathbf{n}=(n_x, n_y, n_z)$ with $n_x,n_y,n_z=0,1,2,\dots$ and computing $$\mathbf{f}_j = \mathbf{P}^{-1}\mathbf{n}_j \mod 1,$$ where the modulo operator is applied element-wise. The vectors $\mathbf{f}_j$ are the fractional coordinates of all possible lattice points $\mathbf{A}'$ which have been reduced to within the first unit cell of this new basis. All unique vectors in this list form the basis points of $\mathbf{A}'$ represented as $\mathbf{b}_\alpha$. 
 
@@ -41,18 +41,32 @@ python Gluster/src/gluster.py in.yml --check-basis
 ```
 If a configuration is fully defined, _Gluster_ will write an XYZ file for the bases and decorated conventional supercells in the `xyz/` sub-directory. Since a disordered configuration may change between runs, a `POSCAR` can be provided using the `poscar` kwarg to lock-in a specific arrangement, though the other kwargs used to generate it should still be included as it fingerprints the configuration.
 
-### Template
+### OIF Template
 
 ```YAML
 name: <name of directory>
 dir: <working directory path>
 lattice: <bcc, fcc, hcp; ONLY bcc is IMPLEMENTED>
+potential: <path to directory containing POTCAR files>
 
 configurations:
-    <id>: 
+    <id>:
+        run: <boolean value forcing VASP files to be regenerated and VASP to be run (see section 2); default = True unless POSCAR and energy.out exist>
         size: <list of three positive integers [Nx, Ny, Nz] for generating the conventional supercell> 
         transform: <3x3 matrix in Hermite normal form used to transform the primitive lattice vectors>
         basis: 
             <fractional coordinates of basis point>: <dictionary mapping species to occupancy probabilities, or a species symbol>
-        comp: <dictionary containg
+            ...
+        comp: <dictionary mapping species to percentage or number of atoms in the conventional supercell>
+        ncores: <number of cores (MPI ranks) to launch VASP with for this configuration>
+        incar: |
+            <INCAR lines for this configuration>
+        poscar: |
+            <POSCAR lines for this configuration>
+        kpoints: |
+            <KPOINTS lines for this configuration>
+        potcar: <list of directory names (e.g., [W_sv, Mo, V_pv]) to load each POTCAR file from>
+    ...
 ```
+
+# Stage 2: Running VASP

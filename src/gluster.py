@@ -1,7 +1,7 @@
 import argparse, yaml, time, logging, sys
 from pathlib import Path
 from copy import deepcopy
-from configuration import Configuration, NTASKS
+from configuration import Configuration, NTASKS, check_configuration_dict
 
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG, format='[%(asctime)s] %(message)s', datefmt='%H:%M:%S')
 logger = logging.getLogger('Gluster')
@@ -36,12 +36,10 @@ configs = deepcopy(input_yml['configurations'])
 for conf_id, conf_dict in configs.items():
     conf_dir = top_dir / str(conf_id)
     conf_dir.mkdir(exist_ok=True)
+    conf_dict = check_configuration_dict(conf_dict)
     configs[conf_id] = Configuration(conf_id, conf_dir, conf_dict)
 
 logger.debug(f'Initialized {len(configs)} configurations')
-
-Configuration.write_basis(top_dir / 'basis.out')
-logger.debug(f"Wrote computed bases to {top_dir / 'basis.out'}")
 
 if args.check_basis:
     logger.debug(f'Detected --check-basis flag. Exiting...')

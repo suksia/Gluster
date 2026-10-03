@@ -27,7 +27,7 @@ class VaspFile:
         elif from_string:
             self.lines = from_string.split('\n')
             self.lines = [l+'\n' for l in self.lines]
-            
+        
         return self
 
     def write(self, path: Path):
@@ -75,10 +75,15 @@ class VaspPoscar(VaspFile):
             return self
 
 class VaspPotcar(VaspFile):
-    def load(self, potcar_names: list[str]):
+    def __init__(self):
+        super().__init__()
+        self.dirnames = None
+    
+    def load(self, dirnames: list[str] = None):
         self.lines = []
-        for potcar in potcar_names:
-            potcar_path = POTCAR_DIR / potcar / 'POTCAR'
+        self.dirnames = dirnames
+        for dirname in self.dirnames:
+            potcar_path = POTCAR_DIR / dirname / 'POTCAR'
             if not potcar_path.exists():
                 raise FileNotFoundError(f"[{self.name}] POTCAR file not found in {potcar_path.parent}")
 
