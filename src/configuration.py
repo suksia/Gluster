@@ -25,6 +25,7 @@ class Configuration(object):
         self.basis = conf_dict['basis']
         self.size = conf_dict['size']
         self.comp: dict[str, int] = conf_dict['comp']
+        self.seed = conf_dict['seed']
 
         self.incar: VaspIncar = conf_dict['incar']
         self.poscar: VaspPoscar = conf_dict['poscar']
@@ -175,6 +176,32 @@ class Configuration(object):
                 for sp, num in species_per_basis_point[bp].items():
                     f.write(f"{sp}: {num}\n")
                 f.write('\n\n')
+
+        # compare needed number of each species with comp
+        for sp, num_sp_comp in self.comp.items():
+            num_sp_needed = 0
+            for sp_dict in species_per_basis_point.values():
+                num_sp_needed += sp_dict[sp]
+            if num_sp_needed != num_sp_comp:
+                raise ValueError(f"({self.cid}) Composition incompatible with chemical basis. Need {num_sp_needed} {sp} atoms, but only {num_sp_comp} in composition")
+
+        # define lattice by randomly assigning species to lattice points
+        rng = np.random.default_rng(seed=self.seed)
+
+        self.lattice = {sp: [] for sp in self.comp.keys()}
+        for bp in self.chemical_basis.keys():
+            lattice_points = lattice_points_per_basis_point[bp]
+            species = []
+            for sp, num in species_per_basis_point[bp].items():
+                species += [sp]*num
+            species = rng.permutation(species)
+            for i, sp in enumerate(species):
+                self.lattice[sp].append(lattice_points[i])
+
+        with open(self.cdir / 'supercell.xyz', 'w') as f:
+            f.write(f'{len(self.lattice)}\n\n')
+            for sp, pos in self.lattice.items():
+                f.write(f"{sp} {pos[0]:3.8f} {pos[1]:3.8f} {pos[2]:3.8f}\n")
         
     def _check_transformation_matrix(self):
         if self.transform.shape != (3,3):
@@ -288,6 +315,9 @@ def check_configuration_dict(conf_dict: dict):
 
     if 'comp' not in conf_dict.keys():
         conf_dict['comp'] = None
+
+    if 'seed' not in conf_dict.keys():
+        conf_dict['seed'] = None
 
     # VASP files
     if 'incar' in conf_dict.keys():
