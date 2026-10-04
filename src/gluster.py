@@ -2,7 +2,9 @@ import argparse, yaml, time, logging, sys
 from pathlib import Path
 from copy import deepcopy
 from configuration import Configuration, NTASKS, check_configuration_dict
-import ase
+from ase import build
+from icet import ClusterSpace, StructureContainer, ClusterExpansion
+from trainstation import CrossValidationEstimator
 
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG, format='[%(asctime)s] %(message)s', datefmt='%H:%M:%S')
 logger = logging.getLogger('Gluster')
@@ -10,6 +12,7 @@ logger = logging.getLogger('Gluster')
 parser = argparse.ArgumentParser()
 parser.add_argument('input', type=str, help='Path to input file')
 parser.add_argument('--check-basis', action=argparse.BooleanOptionalAction)
+parser.add_argument('--run-vasp', action=argparse.BooleanOptionalAction)
 args = parser.parse_args()
 
 input_fp = Path(args.input).resolve()
@@ -97,45 +100,70 @@ while len(queue):
     for fin_cid in finished:
         queue.pop(fin_cid)
 
-# create database for cluster expansion
-db = ase.db.connect(top_dir / 'database.db')
-end_member_energies = {}
+if args.check_basis:
+    logger.debug(f'Detected --run-vasp flag. Exiting...')
+    sys.exit()
 
+# check which configs can be included in CE fitting, also compile a list of unique end-members
+end_members = {}
 for cid, conf in configs.items():
-    # check if config can be included in CE fitting
     conf.load_energy()
     if all([conf.energy, conf.Atoms, conf.include_fit]):
         conf.include_fit = True
-    elif len(conf.comp) == 1:
-        raise ValueError("Config 0 must be the prototype structure used to initialize cluster expansion but VASP may not have run")
-    else:
-        conf.include_fit = False
+        for sp in conf.comp.keys():
+            end_members[sp] = None
 
-    if len(conf.comp) == 1:
-        end_member_energies[next(conf.comp.keys)] = conf.energy
-        db.write(conf.Atoms)
+# make sure end member energies exist
+for cid, conf in configs.items():
+    if conf.comp:
+        species = [sp for sp in conf.comp.keys()]
+        if len(species) == 1 and species[0] in end_members.keys():
+            if conf.include_fit is False:
+                raise ValueError(f"Need energies end-member {next(iter(conf.comp))} (config {cid}) for calculating mixing energy, but VASP may not have run")
+            else:
+                conf.mixing_energy = conf.energy / len(conf.Atoms)
+                end_members[species[0]] = conf.mixing_energy
 
 # compute mixing energies and add them to the rest of the database
 for cid, conf in configs.items():
-    
+    if conf.include_fit:
+        if len(conf.comp) == 1:
+            continue
+        num_atoms = len(conf.Atoms)
+        conf.mixing_energy = conf.energy / num_atoms
+        for sp, cnt in conf.comp:
+            conf.mixing_energy -= (cnt/num_atoms)*end_members[sp]
 
-
-
-if configs[0].include_fit is False:
-    
+# cluster space initialization
+if 'a0' not in input_yml.keys():
+    ce_a0 = 3.15
 else:
-    db.write(configs[0].Atoms)
+    ce_a0 = input_yml['a0']
 
-for cid, conf in configs.items():
-    if cid == 0:
-        continue
-    elif conf.include_fit:
-        db.write(conf.Atoms)
-    else:
-        continue
+if 'cutoffs' not in input_yml.keys():
+    raise KeyError(f"Reached ClusterSpace initialization, but no cutoffs provided")
+else:
+    cutoffs = [float(cf) for cf in input_yml['cutoffs']]
 
+bcc_prim = build.bulk('W', 'bcc', ce_a0)
 
+cs = ClusterSpace(structure=bcc_prim,
+                  cutoffs=cutoffs,
+                  chemical_symbols=[em for em in end_members.keys()])
 
+# structure container
+sc = StructureContainer(cluster_space=cs)
+for conf in configs.values():
+    if conf.include_fit:
+        sc.add_structure(structure=conf.Atoms,
+                        user_tag=conf.name,
+                        properties={'mixing_energy': conf.mixing_energy})
 
+# fit cluster expansion
+opt = CrossValidationEstimator(
+    fit_data=sc.get_fit_data(key='mixing_energy'), fit_method='ardr')
+opt.validate()
+opt.train()
 
-
+ce = ClusterExpansion(cluster_space=cs, parameters=opt.parameters, metadata=opt.summary)
+ce.write(top_dir / 'cluster_expansion.out')

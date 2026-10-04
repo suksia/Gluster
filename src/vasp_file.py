@@ -1,6 +1,7 @@
 import logging
 from pathlib import Path
 from utils import strip_split
+from copy import deepcopy
 
 logger = logging.getLogger('Gluster')
 
@@ -43,12 +44,20 @@ class VaspIncar(VaspFile):
     pass
 
 class VaspPoscar(VaspFile):
+    def __init__(self):
+        super().__init__()
+        self.scaling_factor = None
+        self.lattice_vectors = None
+        self.coord_system = None
+        self.ions = None
+
     def load(self, from_path: Path = None, from_string: str = None, from_data: dict = None):
-        if from_path:
-            super().load(from_path=from_path)
-        elif from_string:
-            super().load(from_string=from_string)
-        elif from_data:
+        if from_data:
+            self.scaling_factor = 1.0
+            self.lattice_vectors = [[from_data['size'][0], 0, 0], [0, from_data['size'][1], 0], [0, 0, from_data['size'][2]]]
+            self.coord_system = 'Cartesian'
+            self.ions = deepcopy(from_data['lattice'])
+
             lines = [f'Configuration {from_data['cid']}\n']
             lines.append('1.000\n')
             lines.append(f"{from_data['size'][0]:3.8f}\t{0:3.8f}\t{0:3.8f}\n")
@@ -67,8 +76,41 @@ class VaspPoscar(VaspFile):
             lines.append('Cartesian'+'\n')
             lines += pos_line
             self.lines = lines
-            
+
             return self
+        
+        elif from_path:
+            super().load(from_path=from_path)
+        elif from_string:
+            super().load(from_string=from_string)
+
+        self.lattice_vectors = []
+        self.species, self.ion_counts, self.lattice_points = [], [], []
+        pos_start_i = None
+        for i, l in self.lines:
+            l = l.strip()
+            if i == 1:
+                self.scaling_factor = float(l)
+            elif i in [2, 3, 4]:
+                self.lattice_vectors.append([float(v) for v in l.split()])
+            elif i == 5:
+                for sp in l.strip():
+                    self.species.append(sp)
+            elif i == 6:
+                for cnt in l.strip():
+                    self.ion_counts.append(cnt)
+            elif i == 7:
+                if l == 'Selective Dynamics':
+                    self.coord_system = self.lines[8].strip()
+                    pos_start_i = 9
+                else:
+                    self.coord_system = l
+                    pos_start_i = 8
+            elif i >= pos_start_i:
+                self.lattice_points.append([float(p) for p in l.split()])
+
+        return self
+        
 
 class VaspPotcar(VaspFile):
     def __init__(self):

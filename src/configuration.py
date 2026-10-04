@@ -20,7 +20,11 @@ class Configuration(object):
     def __init__(self, cid: int, cdir: Path, conf_dict: dict):
         self.cid = cid
         self.cdir = cdir
-        
+
+        self.name = self.conf_dict['name']
+        if self.name is None:
+            self.name = cid
+
         self.transform: np.ndarray = conf_dict['transform']
         self.basis = conf_dict['basis']
         self.size = conf_dict['size']
@@ -54,7 +58,7 @@ class Configuration(object):
         if self.poscar is None:
             self._create_chemical_basis()
         else:
-            self.comp = deepcopy(self.poscar)
+            self.comp = {sp: cnt for sp, cnt in zip(self.poscar.species, self.poscar.ion_counts)}
 
     def _create_chemical_basis(self):
         if self.transform is None:
@@ -366,6 +370,9 @@ def check_configuration_dict(conf_dict: dict):
         conf_dict['seed'] = None
     else:
         conf_dict['seed'] = int(conf_dict['seed'])
+
+    if 'name' not in conf_dict.keys():
+        conf_dict['name'] = None
 
     # VASP files
     if 'incar' in conf_dict.keys():
