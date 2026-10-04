@@ -2,6 +2,7 @@ import argparse, yaml, time, logging, sys
 from pathlib import Path
 from copy import deepcopy
 from configuration import Configuration, NTASKS, check_configuration_dict
+import ase
 
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG, format='[%(asctime)s] %(message)s', datefmt='%H:%M:%S')
 logger = logging.getLogger('Gluster')
@@ -39,13 +40,11 @@ for conf_id, conf_dict in configs.items():
     conf_dict = check_configuration_dict(conf_dict)
     configs[conf_id] = Configuration(conf_id, conf_dir, conf_dict)
 
-logger.debug(f'Initialized {len(configs)} configurations')
+logger.debug(f'Initialized {len(configs)} configurations in {top_dir}')
 
 if args.check_basis:
     logger.debug(f'Detected --check-basis flag. Exiting...')
     sys.exit()
-
-logger.debug(f'Initialized configurations in {top_dir}')
 
 # ----------------- run VASP ----------------- #
 
@@ -59,6 +58,7 @@ for cid, conf in configs.items():
 num_available_cores = NTASKS
 
 while len(queue):
+    time.sleep(0.5)
     # launch jobs
     for cid, conf in queue.items():
         if conf.status == 1 or conf.status == 2:
@@ -82,7 +82,6 @@ while len(queue):
         num_available_cores -= conf.ncores
         conf.status = 1
         logger.debug(f'Running VASP on config {cid} with {conf.ncores} cores (available cores: {num_available_cores})')
-        time.sleep(0.5)
     
     # check statuses
     finished = []
@@ -99,3 +98,44 @@ while len(queue):
         queue.pop(fin_cid)
 
 # create database for cluster expansion
+db = ase.db.connect(top_dir / 'database.db')
+end_member_energies = {}
+
+for cid, conf in configs.items():
+    # check if config can be included in CE fitting
+    conf.load_energy()
+    if all([conf.energy, conf.Atoms, conf.include_fit]):
+        conf.include_fit = True
+    elif len(conf.comp) == 1:
+        raise ValueError("Config 0 must be the prototype structure used to initialize cluster expansion but VASP may not have run")
+    else:
+        conf.include_fit = False
+
+    if len(conf.comp) == 1:
+        end_member_energies[next(conf.comp.keys)] = conf.energy
+        db.write(conf.Atoms)
+
+# compute mixing energies and add them to the rest of the database
+for cid, conf in configs.items():
+    
+
+
+
+if configs[0].include_fit is False:
+    
+else:
+    db.write(configs[0].Atoms)
+
+for cid, conf in configs.items():
+    if cid == 0:
+        continue
+    elif conf.include_fit:
+        db.write(conf.Atoms)
+    else:
+        continue
+
+
+
+
+
+

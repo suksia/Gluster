@@ -1,2 +1,3 @@
 env
+conda_env
 src/__pycache__

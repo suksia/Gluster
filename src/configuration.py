@@ -36,12 +36,14 @@ class Configuration(object):
 
         self.run = conf_dict['run']
         self.ncores = conf_dict['ncores']
+        self.include_fit = conf_dict['include_fit']
         self.energy = None
+        self.mixing_energy = None
         self.Atoms = None
         self.status = 0
         self.process = None
         self.start_time, self.process_time = None, None
-
+        
         if self.load_energy():
             self.status = 2
         if self.run is None or self.run is False:
@@ -51,6 +53,8 @@ class Configuration(object):
 
         if self.poscar is None:
             self._create_chemical_basis()
+        else:
+            self.comp = deepcopy(self.poscar)
 
     def _create_chemical_basis(self):
         if self.transform is None:
@@ -83,14 +87,14 @@ class Configuration(object):
         self.A_chem = A_prim @ self.transform
 
         with open(self.cdir / 'basis.out', 'w') as f:
-            f.write('Chemical lattice vectors (A(chem) = A(prim) @ P, cols, a0=1)')
+            f.write('Chemical lattice vectors: A(chem) = A(prim) @ P, cols, a0=1\n')
             for i in range(3):
                 lv = np.round(self.A_chem[:,i], 6)
                 f.write(f"{lv[0]:2.6f}\t{lv[1]:2.6f}\t{lv[2]:2.6f}\n")
-            f.write('\nChemical basis positions (b(chem) = Pinv @ n mod 1, frac)\n')
+            f.write('\nChemical basis positions: b(chem) = Pinv @ n mod 1, frac\n')
             for bp in basis_points:
                 f.write(f"{bp[0]:2.6f}\t{bp[1]:2.6f}\t{bp[2]:2.6f}\n")
-            f.write('\nChemical lattice positions (r(chem) = A(chem) @ b(chem))\n')
+            f.write('\nChemical lattice positions: r(chem) = A(chem) @ b(chem)\n')
             for bp in basis_points:
                 bp = [float(v) for v in self.A_chem @ np.array(bp)]
                 f.write(f"{bp[0]:2.6f}\t{bp[1]:2.6f}\t{bp[2]:2.6f}\n")
@@ -182,12 +186,12 @@ class Configuration(object):
                 f.write('Chemical basis position (frac)\n')
                 f.write(f"{bp[0]:2.6f}\t{bp[1]:2.6f}\t{bp[2]:2.6f}\n\n")
 
-                f.write('\nSupercell lattice position\n')
+                f.write('Supercell lattice position\n')
                 for lp in lattice_points_per_basis_point[bp]:
                     f.write(f"{lp[0]:2.6f}\t{lp[1]:2.6f}\t{lp[2]:2.6f}\n")
                 f.write('\n')
 
-                f.write('\nDecorated species count\n')
+                f.write('Decorated species count\n')
                 for sp, num in species_per_basis_point[bp].items():
                     f.write(f"{sp}: {num}\n")
                 f.write('\n\n')
@@ -219,7 +223,7 @@ class Configuration(object):
                 for pos in positions:
                     f.write(f"{sp} {pos[0]:3.8f} {pos[1]:3.8f} {pos[2]:3.8f}\n")
 
-        poscar_data = {'cid': self.cid, 'size': [self.a0*self.size[i] for i in self.size], 'lattice': self.lattice}
+        poscar_data = {'cid': self.cid, 'size': [self.a0*s for s in self.size], 'lattice': self.lattice}
         if self.poscar is None:
             self.poscar = VaspPoscar().load(from_data=poscar_data)
         
@@ -308,6 +312,10 @@ class Configuration(object):
         self.start_time = time.perf_counter()
 
     def poll_process(self):
+        # process can not be polled
+        if self.status < 1 or self.process is None:
+            return
+        
         poll = self.process.poll()
         if poll == 0:
             self.status = 2
@@ -328,6 +336,9 @@ def check_configuration_dict(conf_dict: dict):
 
     if 'ncores' not in conf_dict.keys():
         conf_dict['ncores'] = None
+
+    if 'include_fit' not in conf_dict.keys():
+        conf_dict['include_fit'] = True
 
     # things needed to create a lattice
     if 'transform' not in conf_dict.keys():
@@ -353,6 +364,8 @@ def check_configuration_dict(conf_dict: dict):
 
     if 'seed' not in conf_dict.keys():
         conf_dict['seed'] = None
+    else:
+        conf_dict['seed'] = int(conf_dict['seed'])
 
     # VASP files
     if 'incar' in conf_dict.keys():
