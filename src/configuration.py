@@ -2,7 +2,7 @@ from copy import copy, deepcopy
 from vasp_file import *
 import numpy as np
 from pathlib import Path
-import subprocess, os, shutil, time
+import subprocess, shutil, time
 from ase.io import read
 from math import floor
 
@@ -10,11 +10,6 @@ ELEMENTS = {
     'W': {'mass': 183.84, 'a0': 3.165},
     'Mo': {'mass': 95.95, 'a0': 3.147},
     'V': {'mass': 50.94, 'a0': 3.027}}
-
-try:
-    NTASKS = int(os.environ['SLURM_NTASKS'])
-except:
-    NTASKS = 1
 
 class Configuration(object):
     def __init__(self, cid: int, cdir: Path, conf_dict: dict):
@@ -298,6 +293,9 @@ class Configuration(object):
                 self.energy = float(f.readline().strip())
         else:
             success = False
+
+        if self.include_fit and success:
+            self.fit = True
         
         return success
 

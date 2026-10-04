@@ -1,4 +1,4 @@
-_Gluster_ is Pythonic glue code connecting VASP and the [icet](https://icet.materialsmodeling.org/index.html) cluster expansion package. The One Input File (OIF) philosophy is a core tenet, which dictates that the execution of a computational task (e.g., fitting a cluster expansion) should be completely described by a single user-created input file called "the OIF."
+_Gluster_ is Pythonic glue code connecting VASP and the [icet](https://icet.materialsmodeling.org/index.html) cluster expansion package. The One Input File (OIF) philosophy is a core tenet, which dictates that the execution of a computational task (e.g., fitting and analyzing a cluster expansion) should be completely described by a single user-created input file called "the OIF."
 
 # Stage 1: Generating Configurations
 

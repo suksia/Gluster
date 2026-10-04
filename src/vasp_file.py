@@ -110,7 +110,6 @@ class VaspPoscar(VaspFile):
                 self.lattice_points.append([float(p) for p in l.split()])
 
         return self
-        
 
 class VaspPotcar(VaspFile):
     def __init__(self):
