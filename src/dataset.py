@@ -34,15 +34,15 @@ class Dataset:
             logger.debug(f"Queue is empty, skipping VASP")
 
         while len(self.queue):
-            time.sleep(0.5) # give slurm time to add steps
             # launch jobs
             for cid, conf in self.queue.items():
+                time.sleep(0.5) # give slurm time to add steps
                 if conf.status == 1 or conf.status == 2:
                     continue
 
                 if conf.ncores > NTASKS:
                     raise ValueError(f"Too many cores requested for config {cid}. Need {conf.ncores} but only have a maximum of {NTASKS}")
-                elif num_available_cores < conf.ncores:
+                elif self.num_available_cores < conf.ncores:
                     continue
                 
                 # prepare directory and start job
@@ -55,9 +55,9 @@ class Dataset:
 
                 conf.run_vasp()
 
-                num_available_cores -= conf.ncores
+                self.num_available_cores -= conf.ncores
                 conf.status = 1
-                logger.debug(f'Running VASP on config {cid} with {conf.ncores} cores (available cores: {num_available_cores})')
+                logger.debug(f'Running VASP on config {cid} with {conf.ncores} cores (# cores ready: {self.num_available_cores})')
             
             # check statuses
             finished = []
@@ -66,9 +66,9 @@ class Dataset:
                 if conf.status == 1:
                     continue
                 elif conf.status == 2:
-                    num_available_cores += conf.ncores
+                    self.num_available_cores += conf.ncores
                     finished.append(cid)
-                    logger.debug(f'VASP finished for config {cid} (available cores: {num_available_cores})')
+                    logger.debug(f'VASP finished for config {cid} (# cores ready: {self.num_available_cores})')
 
             for fin_cid in finished:
                 self.queue.pop(fin_cid)
@@ -97,5 +97,5 @@ class Dataset:
             else:
                 num_atoms = len(conf.Atoms)
                 conf.mixing_energy = conf.energy / num_atoms
-                for sp, cnt in conf.comp:
+                for sp, cnt in conf.comp.items():
                     conf.mixing_energy -= (cnt/num_atoms)*self.end_members[sp].mixing_energy

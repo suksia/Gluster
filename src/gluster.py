@@ -30,12 +30,12 @@ logger.debug(f'Loaded input file {input_fp}')
 
 ################## project directory ##################
 
-top_dir: Path = Path(input_yml['dir']) / input_yml['name']
+TOP_DIR: Path = Path(input_yml['dir']) / input_yml['name']
 
-if top_dir.parent.exists() is False:
-    raise ValueError(f'Directory {top_dir.parent} does not exist')
+if TOP_DIR.parent.exists() is False:
+    raise ValueError(f'Directory {TOP_DIR.parent} does not exist')
 
-top_dir.mkdir(exist_ok=True)
+TOP_DIR.mkdir(exist_ok=True)
 
 
 #################### configurations ###################
@@ -43,12 +43,12 @@ top_dir.mkdir(exist_ok=True)
 configs: dict[int, Configuration] = deepcopy(input_yml['configurations'])
 
 for conf_id, conf_dict in configs.items():
-    conf_dir = top_dir / str(conf_id)
+    conf_dir = TOP_DIR / str(conf_id)
     conf_dir.mkdir(exist_ok=True)
     conf_dict = check_configuration_dict(conf_dict)
     configs[conf_id] = Configuration(conf_id, conf_dir, conf_dict)
 
-logger.debug(f'Initialized {len(configs)} configurations in {top_dir}')
+logger.debug(f'Initialized {len(configs)} configurations in {TOP_DIR}')
 
 if args.check_basis:
     logger.debug(f'Detected --check-basis flag. Exiting...')
@@ -77,7 +77,7 @@ if 'cutoffs' not in input_yml.keys():
 else:
     cutoffs = [float(cf) for cf in input_yml['cutoffs']]
 
-expansion = Expansion(dataset, ce_a0, cutoffs)
+expansion = Expansion(dataset, ce_a0, cutoffs, TOP_DIR)
 expansion.init_cluster_space()
 expansion.init_structure_container()
-expansion.fit(top_dir / 'expansion.ce')
+expansion.fit()

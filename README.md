@@ -1,5 +1,12 @@
 _Gluster_ is Pythonic glue code connecting VASP and the [icet](https://icet.materialsmodeling.org/index.html) cluster expansion package. The One Input File (OIF) philosophy is a core tenet, which dictates that the execution of a computational task (e.g., fitting and analyzing a cluster expansion) should be completely described by a single user-created input file called "the OIF."
 
+# Installation
+
+```
+conda install -c conda-forge icet=4.0
+pip install -r requirements.txt
+```
+
 # Stage 1: Generating Configurations
 
 Configurations with arbitrary order can be described by a _chemical basis_, which forms a superlattice of the underlying lattice (i.e., bcc, fcc, hcp). It contains $Q$ lattice points along with a mapping between said lattice points and a set of occupancy probabilities $\{p_{\sigma_i}\}$, where $\sigma_i=0,1,...,M$ are the allowed species on site $i$ and $M$ is the alloy order (binary, ternary, ...).

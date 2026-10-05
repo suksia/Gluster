@@ -4,14 +4,19 @@ from trainstation import CrossValidationEstimator
 from dataset import Dataset
 from configuration import Configuration
 from pathlib import Path
+import logging
+
+logging.getLogger("sklearn").setLevel(logging.FATAL)
+logger = logging.getLogger('Gluster')
 
 class Expansion:
-    def __init__(self, dataset: Dataset, a0: float, cutoffs: list[float]):
+    def __init__(self, dataset: Dataset, a0: float, cutoffs: list[float], output_dir: Path):
         self.dataset = Dataset()
         self.update_dataset(dataset)
 
         self.a0 = a0
         self.cutoffs = cutoffs
+        self.output_dir = output_dir
 
         self.cluster_space: ClusterSpace = None
         self.structure_container: StructureContainer = None
@@ -36,25 +41,39 @@ class Expansion:
         if cutoffs:
             self.cutoffs = cutoffs
 
-        self.prim = build.bulk('W', 'bcc', a0)
+        self.dataset.compute_mixing_energies()
+
+        self.prim = build.bulk('W', 'bcc', self.a0)
         self.cluster_space = ClusterSpace(
             structure=self.prim, 
-            cutoffs=cutoffs, 
+            cutoffs=self.cutoffs, 
             chemical_symbols=[em for em in self.dataset.end_members.keys()])
+
+        with(self.output_dir / 'cluster_space.out', 'r') as f:
+            print(self.cluster_space, file=f)
+
+        logger.debug(f"Initialized cluster space")
 
     def init_structure_container(self):
         if self.cluster_space is None:
             raise RuntimeError(f"Tried to initialize structure container, but cluster space does not exist")
         self.structure_container = StructureContainer(cluster_space=self.cluster_space)
 
-        self.dataset.compute_mixing_energies()
         for conf in self.dataset.configs.values():
+            vol_scale_factor = (self.a0**3 / conf.a0**3)**(1/3)
+            conf.Atoms.set_cell(conf.Atoms.cell*vol_scale_factor, scale_atoms=True)
+
             self.structure_container.add_structure(
                 structure=conf.Atoms, 
-                user_tag=conf.name, 
+                user_tag=str(conf.name), 
                 properties={'mixing_energy': conf.mixing_energy})
 
-    def fit(self, write_path: Path):
+        with(self.output_dir / 'structure_container.out', 'r') as f:
+            print(self.structure_container, file=f)
+
+        logger.debug(f"Initialized structure container")
+
+    def fit(self):
         if self.structure_container is None:
             raise RuntimeError(f"Tried to fit cluster expansion, but structure container does not exist")
         
@@ -70,4 +89,11 @@ class Expansion:
             parameters=self.optimizer.parameters, 
             metadata=self.optimizer.summary)
         
-        self.cluster_expansion.write(write_path)
+        with(self.output_dir / 'cross_validation.out', 'r') as f:
+            print(self.optimizer, file=f)
+
+        with(self.output_dir / 'expansion.out', 'r') as f:
+            print(self.cluster_expansion, file=f)
+
+        self.cluster_expansion.write(self.output_dir / 'expansion.ce')
+        logger.debug(f"Initialized and fit cluster expansion")

@@ -16,7 +16,7 @@ class Configuration(object):
         self.cid = cid
         self.cdir = cdir
 
-        self.name = self.conf_dict['name']
+        self.name = conf_dict['name']
         if self.name is None:
             self.name = cid
 
