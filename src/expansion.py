@@ -4,9 +4,9 @@ from trainstation import CrossValidationEstimator
 from dataset import Dataset
 from configuration import Configuration
 from pathlib import Path
-import logging
+import logging, warnings
 
-logging.getLogger("sklearn").setLevel(logging.FATAL)
+warnings.filterwarnings("ignore", category=UserWarning)
 logger = logging.getLogger('Gluster')
 
 class Expansion:
@@ -49,7 +49,7 @@ class Expansion:
             cutoffs=self.cutoffs, 
             chemical_symbols=[em for em in self.dataset.end_members.keys()])
 
-        with(self.output_dir / 'cluster_space.out', 'r') as f:
+        with open(self.output_dir / 'cluster_space.out', 'w') as f:
             print(self.cluster_space, file=f)
 
         logger.debug(f"Initialized cluster space")
@@ -68,7 +68,7 @@ class Expansion:
                 user_tag=str(conf.name), 
                 properties={'mixing_energy': conf.mixing_energy})
 
-        with(self.output_dir / 'structure_container.out', 'r') as f:
+        with open(self.output_dir / 'structure_container.out', 'w') as f:
             print(self.structure_container, file=f)
 
         logger.debug(f"Initialized structure container")
@@ -89,10 +89,10 @@ class Expansion:
             parameters=self.optimizer.parameters, 
             metadata=self.optimizer.summary)
         
-        with(self.output_dir / 'cross_validation.out', 'r') as f:
+        with open(self.output_dir / 'cross_validation.out', 'w') as f:
             print(self.optimizer, file=f)
 
-        with(self.output_dir / 'expansion.out', 'r') as f:
+        with open(self.output_dir / 'expansion.out', 'w') as f:
             print(self.cluster_expansion, file=f)
 
         self.cluster_expansion.write(self.output_dir / 'expansion.ce')
