@@ -1,1 +1,2 @@
 pyyaml==6.0.3
+more_itertools==11.2.1

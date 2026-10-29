@@ -1,3 +1,4 @@
 env
 conda_env
-src/__pycache__
+src/gluster/__pycache__
+test/

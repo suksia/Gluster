@@ -1,11 +1,24 @@
 import logging
 from pathlib import Path
-from utils import strip_split
 from copy import deepcopy
 
 logger = logging.getLogger('Gluster')
 
 POTCAR_DIR = Path('/storage/group/xvw5285/default/atomistic_pkgs/potpaw_PBE.54/')
+
+def strip_split(s: str, sep=None, item_type=None):
+    """Strip a string of whitespace and split it apart given a separator character."""
+    s = s.strip()
+    s = s.split(sep)
+    if item_type is int:
+        return [int(x) for x in s]
+    elif item_type is float:
+        return [float(x) for x in s]
+    elif item_type is None:
+        return s
+    else:
+        raise ValueError(f'[{item_type}] Invalid item type. Choose None, int, or float')
+
 
 class VaspFile:
     def __init__(self):
@@ -46,26 +59,28 @@ class VaspIncar(VaspFile):
 class VaspPoscar(VaspFile):
     def __init__(self):
         super().__init__()
-        self.scaling_factor = None
-        self.lattice_vectors = None
-        self.coord_system = None
-        self.ions = None
+        self.comment_line: str = None
+        self.scaling_factor: float = None
+        self.lattice_vectors: list[list[float]] = None
+        self.coord_system: str = None
+        self.ions: dict[str, list[tuple[float]]] = None
 
     def load(self, from_path: Path = None, from_string: str = None, from_data: dict = None):
         if from_data:
-            self.scaling_factor = 1.0
-            self.lattice_vectors = [[from_data['size'][0], 0, 0], [0, from_data['size'][1], 0], [0, 0, from_data['size'][2]]]
-            self.coord_system = 'Cartesian'
-            self.ions = deepcopy(from_data['lattice'])
+            self.comment_line = from_data['comment']
+            self.scaling_factor = from_data['scaling_factor']
+            self.lattice_vectors = from_data['lattice_vectors']
+            self.coord_system = from_data['coord_system']
+            self.ions = from_data['ions']
 
-            lines = [f'Configuration {from_data['cid']}\n']
-            lines.append('1.000\n')
-            lines.append(f"{from_data['size'][0]:3.8f}\t{0:3.8f}\t{0:3.8f}\n")
-            lines.append(f"{0:3.8f}\t{from_data['size'][1]:3.8f}\t{0:3.8f}\n")
-            lines.append(f"{0:3.8f}\t{0:3.8f}\t{from_data['size'][2]:3.8f}\n")
+            lines = [self.comment_line + '\n']
+            lines.append(f'{self.scaling_factor:3.5f}\n')
 
+            for lv in self.lattice_vectors:
+                lines.append(f"{lv[0]:3.8f}\t{lv[1]:3.8f}\t{lv[2]:3.8f}\n")
+           
             sp_line, nat_line, pos_line = "", "", []
-            for sp, lps in from_data['lattice'].items():
+            for sp, lps in self.ions.items():
                 sp_line += f"{sp:3} "
                 nat_line += f"{len(lps):<3} "
                 for pos in lps:
@@ -73,7 +88,7 @@ class VaspPoscar(VaspFile):
 
             lines.append(sp_line+'\n')
             lines.append(nat_line+'\n')
-            lines.append('Cartesian'+'\n')
+            lines.append(self.coord_system+'\n')
             lines += pos_line
             self.lines = lines
 
