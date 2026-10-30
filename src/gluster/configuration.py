@@ -11,7 +11,7 @@ from utils import is_hnf, replicate, ELEMENTS
 
 
 class Configuration:
-    def __init__(self, H: np.ndarray, basis: dict[tuple[float], str], cid: int = None, cdir: Path = None):
+    def __init__(self, H: np.ndarray, basis: dict[tuple[float], str], size: int, cid: int = None, cdir: Path = None):
         if not is_hnf(H):
             raise ValueError(f"Matrix {H} is not in Hermite normal form")
 
@@ -32,6 +32,7 @@ class Configuration:
 
         self.A_super = np.eye(3)
         self.supercell: dict[tuple[float], str] = None
+        self.size = size
 
         self.incar: VaspIncar = None
         self.kpoints: VaspKpoints = None
@@ -55,10 +56,12 @@ class Configuration:
     def compute_composition(self):
         """Given the supercell dictionary, compute the atomic and fractional composition. Also compute average lattice constant."""
         if self.supercell is None:
-            raise ValueError(f"Supercell must be defined to compute composition")
+            mapping = self.basis
+        else:
+            mapping = self.supercell
 
         self.at_composition = {}
-        for sp in self.supercell.values():
+        for sp in mapping.values():
             if sp not in self.at_composition.keys():
                 self.at_composition[sp] = 1
             else:
@@ -100,7 +103,7 @@ class Configuration:
 
         lattice_vectors = []
         for lv in self.A_super:
-            lattice_vectors.append([float(val) for val in lv.tolist()])
+            lattice_vectors.append((lv*self.size).tolist())
 
         ions = {}
         for lp, sp in self.supercell.items():
@@ -213,9 +216,8 @@ class OrderedConfiguration(Configuration):
         if len(basis) != int(np.rint(np.linalg.det(H))):
             raise ValueError(f"Number of points in basis ({len(basis)}) does not match determinant of {H}")
 
-        super().__init__(H, basis, cid, cdir)
+        super().__init__(H, basis, size, cid, cdir)
         self.ordered = True
-        self.size = size
 
     def map_to_supercell(self):
         """Replicates the conventional supercell and maps the basis onto it."""
@@ -244,8 +246,8 @@ class OrderedConfiguration(Configuration):
 
 
 class DisorderedConfiguration(Configuration):
-    def __init__(self, basis: dict[tuple[float], str], cid: int = None, cdir: Path = None):
-        super().__init__(np.eye(3), basis, cid, cdir)
+    def __init__(self, basis: dict[tuple[float], str], size: int, cid: int = None, cdir: Path = None):
+        super().__init__(np.eye(3), basis, size, cid, cdir)
 
         self.supercell = basis
         self.ordered = False

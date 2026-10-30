@@ -3,11 +3,14 @@ import matplotlib.pyplot as plt
 from math import pi, cos, sin, atan2
 import numpy as np
 from copy import copy, deepcopy
+import logging
 
 from utils import ELEMENTS, composition_distance, replicate
-from configuration import Configuration, OrderedConfiguration, DisorderedConfiguration
+from configuration import OrderedConfiguration, DisorderedConfiguration
 from enumeration import Lattice, Sublattice
 from sampling import Sampler
+
+logging.getLogger("matplotlib").setLevel(logging.FATAL)
 
         
 class Mesh:
@@ -31,7 +34,7 @@ class Mesh:
         else:
             mesh_params = enum_parameters['mesh']
 
-        self.min_mu, self.max_mu, self.rho, self.delta = mesh_params
+        self.min_mu, self.max_mu, self.rho, self.gamma = mesh_params
 
         self.comp_decay = enum_parameters['sampling']['composition']
         self.basis_decay = enum_parameters['sampling']['basis_size']
@@ -54,7 +57,7 @@ class Mesh:
         self.configurations = self._sample_configurations()
 
     def _enumerate_compositions(self) -> dict[tuple[float], list[int]]:
-        pass
+        raise NotImplementedError("Only subclass methods are defined")
 
     def _refine_mesh(self):
         retained_comps: dict[tuple[float], list[int]] = {}
@@ -66,7 +69,7 @@ class Mesh:
 
             dxc = composition_distance(comp, self.eq_comp)
 
-            mu = self.min_mu + self.rho*(dxc)**self.delta
+            mu = self.min_mu + self.rho*(dxc)**self.gamma
             mu = min(mu, self.max_mu)
 
             retain = True
@@ -175,26 +178,33 @@ class Mesh:
         supercell_positions = replicate(A, conv_basis_pos, supercell_size)
         num_conv_positions = len(supercell_positions)
 
+        supercell_positions_reduced = []
+        for pos in supercell_positions:
+            pos = np.array(pos)
+            pos /= self.supercell_size
+            supercell_positions_reduced.append(tuple(pos.tolist()))
+
+        supercell_positions = supercell_positions_reduced
+
         for di in range(self.N_disordered):
-            # sample a distance, then a composition
-            sampled_dxc = dxc_keys[self.sampler.sample_exp_distr(len(dxc_keys), self.comp_decay)]
-            sampled_comp = dxc_to_comps[sampled_dxc][self.sampler.sample_uni_distr(len(dxc_to_comps[sampled_dxc]))]
+            # uniformly sample the composition space
+            sampled_comp = []
+
+            c1 = self.sampler.sample_uni_distr(num_conv_positions-self.rank)+1
+            if type(self).rank == 2:
+                c2 = num_conv_positions - c1
+                sampled_comp = [c1, c2]
+
+            elif type(self).rank == 3:
+                c2 = self.sampler.sample_uni_distr(num_conv_positions-self.rank-1)+1
+                c3 = num_conv_positions - c1 - c2
+                sampled_comp = [c1, c2, c3]
 
             # define a random decoration following the sampled composition
             decoration: list[str] = []
-            for el, conc in zip(self.elements, sampled_comp):
-                decoration += [el]*round(conc*num_conv_positions)
-
-            # adjust for rounding errors
-            if len(decoration) == num_conv_positions:
-                pass
-            elif len(decoration) == num_conv_positions+1:
-                decoration = decoration[1:]
-            elif len(decoration) == num_conv_positions-1:
-                decoration = [self.elements[0]] + decoration
-            else:
-                raise RuntimeError(f"Decoration for composition {sampled_comp} was {len(decoration)} long, but needed to be {num_conv_positions} long")
-
+            for c, el in zip(sampled_comp, self.elements):
+                decoration += [el]*c
+            
             # ensure decoration has not already been used (should be rare but not impossible)
             duplicate_decoration = True
             while duplicate_decoration:
@@ -206,14 +216,49 @@ class Mesh:
             disordered_decorations.append(tuple(decoration))
 
             # define configuration instance
-            comp_dict = dict(zip(self.elements, sampled_comp))
-            basis = {(0,0,0): comp_dict}
-
-            config = DisorderedConfiguration(dict(zip(supercell_positions, decoration)))
+            config = DisorderedConfiguration(dict(zip(supercell_positions, decoration)), self.supercell_size)
             disordered_configs.append(config)
         
         return ordered_configs + disordered_configs
-    
+
+    def plot_mesh_parameters(self, write_dir: Path):
+        x = np.linspace(0, 1.5, 50)
+
+        y = self.min_mu + self.rho*(x)**self.gamma
+        y = np.clip(y, a_min=self.min_mu, a_max=self.max_mu)
+
+        fig = plt.figure()
+        plt.plot(x, y)
+        plt.xlabel("Distance to Equiatomic")
+        plt.ylabel(r"$\mu$")
+        plt.title(rf"{self.alloy_string} Mesh parameters ($\mu_\text{{min}}={self.min_mu}$, $\mu_\text{{max}}={self.max_mu}$, $\rho={self.rho}$, $\gamma={self.gamma}$)")
+
+        fig.savefig(write_dir / f"{self.alloy_string} mesh params.png", bbox_inches='tight')
+
+    def plot_sampling_parameters(self, write_dir: Path):
+        k = 10
+        i = np.arange(0, k)
+
+        a_comp = self.comp_decay
+        a_basis = self.basis_decay
+
+        w_comp = a_comp*np.exp(-a_comp*i/k)
+        w_basis = a_basis*np.exp(-a_basis*i/k)
+
+        fig, axes = plt.subplots(2, 1, figsize=(4,6), sharex=True)
+        axes: list[plt.Axes] = axes
+
+        axes[0].bar(i, w_comp)
+        axes[0].set_title(rf"Composition sampling ($\lambda={a_comp}$)")
+        axes[0].set_ylabel("Probability")
+
+        axes[1].bar(i, w_basis)
+        axes[1].set_title(rf"Basis size sampling ($\lambda={a_basis}$)")
+        axes[1].set_xlabel("Sampled Value")
+        axes[1].set_ylabel("Probability")
+
+        fig.savefig(write_dir / f"{self.alloy_string} sampling params.png", bbox_inches='tight')
+
 
 class UnaryMesh(Mesh):
     """A single configuration containing just one element."""
@@ -251,7 +296,73 @@ class BinaryMesh(Mesh):
                     comps[comp].append(l)
 
         return comps
-    
+
+    def plot(self, write_dir: Path):
+        def plot_binary(comps: dict[tuple[float], int], write_path: Path):
+            x, multiplicity = [], []
+            for comp, mult in comps.items():
+                x.append(comp[0])
+                multiplicity.append(mult)
+
+            fig, ax = plt.subplots(figsize=(8, 2))
+
+            map = ax.scatter(x, [0]*len(x), c=multiplicity, cmap='plasma', zorder=3)
+
+            ax.hlines(0, 0, 1, color='black', lw=1)
+            ax.plot([0,1], [0,0], 'ko')
+            
+            ax.set_xticks([0.1*i for i in range(0, 11)])
+            ax.set_xlim([-0.05,1.05])
+            ax.tick_params(axis='x', length=8)
+            ax.set_xlabel(f'$x({self.elements[0]})$')
+            ax.set_yticks([])
+
+            ax.spines['left'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+            ax.spines['top'].set_visible(False)
+            ax.spines['bottom'].set_position(("data", 0))
+            ax.spines['bottom'].set_bounds(0,1)
+
+            cbar = fig.colorbar(map, orientation='horizontal', fraction=0.1, aspect=20, pad=0.2)   
+            cbar.set_ticks(np.linspace(min(multiplicity), max(multiplicity), 4, dtype=int))
+            cbar.set_label("Multiplicity")
+
+            ax.set_title(f'{self.alloy_string} Mesh')
+
+            if not write_path.parent.exists():
+                raise ValueError(f"{write_path.parent} does not exist")
+            fig.savefig(write_path, bbox_inches='tight')
+
+        # plot enumerated compositions
+        all_enum_comps = {comp: len(ls) for comp, ls in self.all_compositions.items()}
+        plot_binary(all_enum_comps, write_dir / f"{self.alloy_string} all enumerated.png")
+
+        ref_enum_comps = {comp: len(ls) for comp, ls in self.compositions.items()}
+        plot_binary(ref_enum_comps, write_dir / f"{self.alloy_string} refined enumerated.png")
+
+        # plot compositions of all sampled configurations
+        ordered_comps, disordered_comps = {}, {}
+        for config in self.configurations:
+            config.compute_composition()
+
+            comp = []
+            for el in self.elements:
+                comp.append(config.composition[el])
+            comp = tuple(comp)
+
+            if config.ordered:
+                comp_dict = ordered_comps
+            else:
+                comp_dict = disordered_comps
+
+            if comp in comp_dict.keys():
+                comp_dict[comp] += 1
+            else:
+                comp_dict[comp] = 1
+
+        plot_binary(ordered_comps, write_dir / f"{self.alloy_string} ordered.png")
+        plot_binary(disordered_comps, write_dir / f"{self.alloy_string} disordered.png")
+        
 
 class TernaryMesh(Mesh):
     """Contains all enumerated ternary alloy compositions and a set of sampled configurations."""
@@ -274,6 +385,70 @@ class TernaryMesh(Mesh):
 
         return comps
 
+    def plot(self, write_dir: Path):
+        def plot_ternary(comps: dict[tuple[float], int], write_path: Path):
+            thetas, rs, multiplicity = [], [], []
+            for comp, mult in comps.items():
+                x = comp[0]*cos(pi) + comp[1]*cos(pi/3) + comp[2]*cos(5*pi/3)
+                y = comp[0]*sin(pi) + comp[1]*sin(pi/3) + comp[2]*sin(5*pi/3)
 
-def plot_sampled_configs(meshes: dict[str, Mesh]):
-    return
+                thetas.append(atan2(y, x))
+                rs.append((x**2 + y**2)**(1/2))
+                multiplicity.append(mult)
+
+            fig, ax = plt.subplots(subplot_kw={'projection': 'polar'}, layout='constrained', figsize=(6,6))
+
+            angles = [pi, pi/3, 5*pi/3]
+            colors = ['blue', 'darkgreen', 'darkred']
+            offsets = [(0.02, 0.13),  (0, 0.05),  (-0.04, 0.09)]
+
+            for i, el in enumerate(self.elements):
+                ax.plot([angles[i], angles[i]], [0, 1], linewidth=2.5, color=colors[i])
+                ax.text(angles[i]+offsets[i][0], 1+offsets[i][1], el, color=colors[i], size=15)
+                ax.annotate('', xy=(angles[i], 1), xytext=(angles[i], 0.9), arrowprops=dict(arrowstyle='->', edgecolor=colors[i], lw=2.5))
+
+            map = ax.scatter(thetas, rs, c=multiplicity, cmap='plasma', s=40, zorder=2)
+
+            cbar = fig.colorbar(map, orientation='horizontal', fraction=0.033, aspect=20, pad=0.1)
+            cbar.set_ticks(np.linspace(min(multiplicity), max(multiplicity), 4, dtype=int))
+            cbar.ax.tick_params(labelsize=13)
+            cbar.set_label("Multiplicity", fontsize=14)
+
+            ax.set_rmax(1)
+            ax.set_xticks([])
+            ax.tick_params(labelbottom=False, labelleft=False)
+            ax.set_title(f'{self.alloy_string} Mesh', pad=35, fontsize=16)
+
+            if not write_path.parent.exists():
+                raise ValueError(f"{write_path.parent} does not exist")
+            fig.savefig(write_path, bbox_inches='tight')
+
+        # plot enumerated compositions
+        all_enum_comps = {comp: len(ls) for comp, ls in self.all_compositions.items()}
+        plot_ternary(all_enum_comps, write_dir / f"{self.alloy_string} all enumerated.png")
+
+        ref_enum_comps = {comp: len(ls) for comp, ls in self.compositions.items()}
+        plot_ternary(ref_enum_comps, write_dir / f"{self.alloy_string} refined enumerated.png")
+
+        # plot compositions of all sampled configurations
+        ordered_comps, disordered_comps = {}, {}
+        for config in self.configurations:
+            config.compute_composition()
+
+            comp = []
+            for el in self.elements:
+                comp.append(config.composition[el])
+            comp = tuple(comp)
+
+            if config.ordered:
+                comp_dict = ordered_comps
+            else:
+                comp_dict = disordered_comps
+
+            if comp in comp_dict.keys():
+                comp_dict[comp] += 1
+            else:
+                comp_dict[comp] = 1
+
+        plot_ternary(ordered_comps, write_dir / f"{self.alloy_string} ordered.png")
+        plot_ternary(disordered_comps, write_dir / f"{self.alloy_string} disordered.png")

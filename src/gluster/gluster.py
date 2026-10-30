@@ -1,4 +1,4 @@
-import argparse, yaml, time, logging, sys, random, itertools
+import argparse, yaml, logging, sys, itertools
 from pathlib import Path
 import numpy as np
 
@@ -91,6 +91,13 @@ if args.enumerate:
             meshes[binary] = mesh
             logger.debug(f'Mesh generated for {binary[0]}-{binary[1]}')
 
+            mesh_dir = TOP_DIR / mesh.alloy_string
+            mesh_dir.mkdir(exist_ok=True)
+
+            mesh.plot(mesh_dir)
+            mesh.plot_mesh_parameters(mesh_dir)
+            mesh.plot_sampling_parameters(mesh_dir)
+
     if 'ternary' in enum.keys():
         ternary_lattice = BCC(enum['ternary']['L'])
         ternary_lattice.enumerate_HNF()
@@ -100,6 +107,13 @@ if args.enumerate:
             mesh = TernaryMesh(ternary, ternary_lattice, sampler, enum['ternary'])
             meshes[ternary] = mesh
             logger.debug(f'Mesh generated for {ternary[0]}-{ternary[1]}-{ternary[2]}')
+
+            mesh_dir = TOP_DIR / mesh.alloy_string
+            mesh_dir.mkdir(exist_ok=True)
+
+            mesh.plot(mesh_dir)
+            mesh.plot_mesh_parameters(mesh_dir)
+            mesh.plot_sampling_parameters(mesh_dir)
 
     new_configs_lines = ['\n\nconfigurations:\n']
     cid = 0
@@ -115,10 +129,10 @@ if args.enumerate:
             if config.ordered:
                 new_configs_lines.append(" "*4 + "ordered: True\n")
                 new_configs_lines.append(" "*4 + f"H: {H}\n")
-                new_configs_lines.append(" "*4 + f"size: {config.size}\n")
             else:
                 new_configs_lines.append(" "*4 + "ordered: False\n")
 
+            new_configs_lines.append(" "*4 + f"size: {config.size}\n")
             new_configs_lines.append(" "*4 + "basis:\n")
             pos_line = " "*6 + f"positions: ["
             sp_line = " "*6 + f"species: ["
@@ -150,12 +164,13 @@ conf: dict[int, dict] = input_yml['configurations']
 configs: dict[int, OrderedConfiguration | DisorderedConfiguration] = {}
 
 for cid, conf_dict in conf.items():
-    conf_dir = TOP_DIR / str(cid)
-    conf_dir.mkdir(exist_ok=True)
+    conf_dir = TOP_DIR / 'configurations' / str(cid)
+    conf_dir.mkdir(exist_ok=True, parents=True)
 
     positions = [tuple(pos) for pos in conf_dict['basis']['positions']]
     species = conf_dict['basis']['species']
     basis = dict(zip(positions, species))
+    size = conf_dict['size']
 
     if 'incar' in conf_dict.keys():
         incar = VaspIncar().load(from_string=conf_dict['incar'])
@@ -174,14 +189,14 @@ for cid, conf_dict in conf.items():
 
     if conf_dict['ordered']:
         H = np.array(conf_dict['H'])
-        size = conf_dict['size']
         configs[cid] = OrderedConfiguration(H, basis, size, cid=cid, cdir=conf_dir)
         configs[cid].map_to_supercell()
     else:
-        configs[cid] = DisorderedConfiguration(basis, cid=cid, cdir=conf_dir)
+        configs[cid] = DisorderedConfiguration(basis, size, cid=cid, cdir=conf_dir)
 
     # use calculation-level vasp settings first
     configs[cid].set_vasp_files(incar=incar, kpoints=kpoints, potcar_names=potcar_names)
+    configs[cid].write_vasp_files()
 
 logger.debug(f'Initialized {len(configs)} configurations in {TOP_DIR}')
 

@@ -74,7 +74,7 @@ def replicate(A: np.ndarray, unit_cell_positions: list[np.ndarray], size: tuple[
     for bp in unit_cell_positions:
         for tr_vector in list(np.ndindex(size)):
             pos = bp + A @ tr_vector
-            pos = tuple([float(val) for val in pos])
+            pos = tuple(pos.tolist())
             supercell_positions.append(pos)
 
     return supercell_positions

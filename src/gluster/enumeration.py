@@ -129,7 +129,8 @@ class Sublattice:
                     
         for pos in self.snf_positions:
             frac_pos = (np.linalg.inv(self.H) @ np.linalg.inv(self.U) @ np.array(pos)) % 1
-            frac_pos = tuple([float(round(v, 8)) for v in frac_pos])
+            frac_pos = np.where(np.isclose(frac_pos, 1.0), 0.0, frac_pos)
+            frac_pos = tuple(np.round(frac_pos, 8).tolist())
             self.frac_positions.append(frac_pos)
 
     def enumerate_bases(self, composition: dict[str, float]):
