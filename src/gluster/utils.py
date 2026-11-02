@@ -78,3 +78,9 @@ def replicate(A: np.ndarray, unit_cell_positions: list[np.ndarray], size: tuple[
             supercell_positions.append(pos)
 
     return supercell_positions
+
+def alloy_string(elements: tuple[str]):
+    alloy_string = ''
+    for el in elements:
+        alloy_string += el +'-'
+    return alloy_string[:-1]

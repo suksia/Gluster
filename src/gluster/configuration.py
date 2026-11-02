@@ -20,7 +20,8 @@ class Configuration:
 
         self.ordered = None
         self.basis = basis
-        self.rank = len(set(self.basis.values()))
+        self.elements = set(self.basis.values())
+        self.rank = len(self.elements)
 
         self.at_composition: dict[str, int] = None
         self.composition: dict[str, float] = None
@@ -49,6 +50,7 @@ class Configuration:
         
         self.Atoms: Atoms = None
         self.energy: float = None
+        self.norm_energy: float = None
         self.mixing_energy: float = None
         
         if self.get_energy():

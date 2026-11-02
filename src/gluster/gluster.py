@@ -261,9 +261,8 @@ if args.dft:
 
     dataset.run_jobs()
 
-
-dataset.plot_binary_mixing_energy(write_dir=TOP_DIR, x_element = dataset.end_members[0])
-
+dataset.compute_mixing_energies()
+dataset.plot_mixing_energy(write_dir=TOP_DIR)
 
 
 ######################## fit CE #######################

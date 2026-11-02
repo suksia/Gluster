@@ -5,7 +5,7 @@ import numpy as np
 from copy import copy, deepcopy
 import logging
 
-from utils import ELEMENTS, composition_distance, replicate
+from utils import ELEMENTS, composition_distance, replicate, alloy_string
 from configuration import OrderedConfiguration, DisorderedConfiguration
 from enumeration import Lattice, Sublattice
 from sampling import Sampler
@@ -22,11 +22,8 @@ class Mesh:
         self.lattice = lattice
         self.sampler = sampler
         
-        self.alloy_string = ''
-        for el in self.elements:
-            self.alloy_string += el +'-'
-        self.alloy_string = self.alloy_string[:-1]
-
+        self.alloy_string = alloy_string(self.elements)
+        
         self.L = enum_parameters['L']
 
         if type(enum_parameters['mesh']) != list:

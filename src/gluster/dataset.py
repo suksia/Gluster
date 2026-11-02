@@ -1,9 +1,10 @@
 from copy import deepcopy
-import os, time, logging
+import os, time, logging, itertools
 from pathlib import Path
 import matplotlib.pyplot as plt
 
 from configuration import Configuration
+from utils import alloy_string
 
 try:
     NTASKS = int(os.environ['SLURM_NTASKS'])
@@ -28,13 +29,13 @@ class Dataset:
                 self.queue[cid] = conf
 
         self.max_rank = 0
-        for conf in self.configs.items():
+        for conf in self.configs.values():
             self.max_rank = max(self.max_rank, conf.rank)
 
         self.num_available_cores = NTASKS
 
-        self.end_member_mixing_energy: dict[Configuration, float] = {}
-        self.mixing_energies = {}
+        self.end_member_energy: dict[str, float] = {}
+        self.mixing_energies: dict[Configuration, float] = {}
 
     def run_jobs(self):
         if len(self.queue) == 0:
@@ -79,8 +80,8 @@ class Dataset:
             if conf.energy is None:
                 raise ValueError(f"Need energy for end-member {el} (config {conf.cid}) for calculating mixing energy, but VASP may not have run or finished")
 
-            conf.mixing_energy = conf.energy / len(self.supercell)
-            self.end_member_mixing_energy[el] = conf.mixing_energy
+            conf.norm_energy = conf.energy / len(conf.supercell)
+            self.end_member_energy[el] = conf.norm_energy
 
         # compute mixing energies
         for cid, conf in self.configs.items():
@@ -91,24 +92,66 @@ class Dataset:
             elif conf.energy is None:
                 continue
             else:
-                conf.mixing_energy = conf.energy / len(conf.supercell)
+                conf.norm_energy = conf.energy / len(conf.supercell)
+
+                conf.mixing_energy = conf.norm_energy
                 for sp, conc in conf.composition.items():
-                    conf.mixing_energy -= conc*self.end_members[sp].mixing_energy
+                    conf.mixing_energy -= conc*self.end_member_energy[sp]
 
-            self.mixing_energies[conf] = conf.mixing_energy
+    def plot_binary_mixing_energy(self, write_dir: Path, elements: tuple[str]):
+        x_element = elements[0]
+        all_str = alloy_string(elements)
 
-    def plot_binary_mixing_energy(self, write_dir: Path, x_element: str):
         x, y = [], []
-        for conf, me in self.end_member_mixing_energy.items():
-            if conf.rank != 2:
-                continue
+        for conf, me in self.mixing_energies.items():
+            skip = False
 
-            x.append(conf.composition[x[x_element]])
-            y.append(self.mixing_energies)
+            if conf.rank != 2:
+                skip = True
+
+            for el in elements:
+                if el not in conf.elements:
+                    skip = True
+                    break
+
+            if skip:
+                continue
+            
+            x.append(conf.composition[x_element])
+            y.append(me*1000)
 
         fig = plt.figure()
-        plt.scatter(x, y)
-        fig.savefig(write_dir / 'binary mixing energy.png', bbox_inches='tight')
 
-    def plot_ternary_mixing_energy(self):
+        plt.scatter(x, y)
+        plt.xlabel(f"x({x_element})")
+        plt.ylabel(f"Mixing Energy [meV]")
+        plt.title(f"{all_str} Mixing Energy")
+        plt.grid('True')
+
+        fig.savefig(write_dir / f'{all_str} mixing energy.png', bbox_inches='tight')
+
+    def plot_ternary_mixing_energy(self, write_dir: Path, elements: tuple[str]):
         pass
+
+    def plot_mixing_energy(self, write_dir: Path):
+        with open(write_dir / 'mixing energies.out', 'w') as f:
+            f.write("End Member Energies [eV]\n\n")
+            for end_mem, engy in self.end_member_energy.items():
+                f.write(f"{end_mem} = {engy:2.5f}\n")
+
+            f.write('\nMixing Energies [eV]\n\n')
+            for conf, engy in self.mixing_energies.items():
+                comp_line = ""
+                for el, conc in conf.composition.items():
+                    comp_line += f"{el}={conc:1.3f}  "
+                f.write(comp_line[:-2] + '\n')
+                f.write(f"{engy:1.6f}")
+
+        if len(self.end_members) == 2:
+            self.plot_binary_mixing_energy(write_dir, tuple(self.end_members.keys()))
+
+        elif len(self.end_members) == 3:
+            for binary in itertools.combinations(self.end_members.keys(), 2):
+                self.plot_binary_mixing_energy(write_dir, binary)
+
+            self.plot_ternary_mixing_energy(write_dir, tuple(self.end_members.keys()))
