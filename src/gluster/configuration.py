@@ -22,7 +22,8 @@ class Configuration:
         self.basis = basis
         self.rank = len(set(self.basis.values()))
 
-        self.at_composition, self.composition = None, None
+        self.at_composition: dict[str, int] = None
+        self.composition: dict[str, float] = None
         self.a0, self.avg_a0 = 1.0, None
 
         self.H = H
@@ -209,6 +210,7 @@ class Configuration:
 
             self.process_time = time.perf_counter() - self.start_time
             self.outfile.write(f'Total wall time: {floor(self.process_time/3600)}hrs {floor((self.process_time/60)%60)}min {round((self.process_time%60))}sec')
+            self.outfile.close()
 
 
 class OrderedConfiguration(Configuration):

@@ -198,6 +198,8 @@ for cid, conf_dict in conf.items():
     configs[cid].set_vasp_files(incar=incar, kpoints=kpoints, potcar_names=potcar_names)
     configs[cid].write_vasp_files()
 
+dataset = Dataset(configs)
+
 logger.debug(f'Initialized {len(configs)} configurations in {TOP_DIR}')
 
 
@@ -257,8 +259,11 @@ if args.dft:
 
         config.ncores = ncores_by_rank[rank_name]
 
-    dataset = Dataset(configs)
     dataset.run_jobs()
+
+
+dataset.plot_binary_mixing_energy(write_dir=TOP_DIR, x_element = dataset.end_members[0])
+
 
 
 ######################## fit CE #######################
