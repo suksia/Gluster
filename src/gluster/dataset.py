@@ -129,7 +129,7 @@ class Dataset:
         plt.grid('True')
 
         fig.savefig(write_dir / f'{all_str} mixing energy.png', bbox_inches='tight')
-
+        
     def plot_ternary_mixing_energy(self, write_dir: Path, elements: tuple[str]):
         pass
 
@@ -141,11 +141,15 @@ class Dataset:
 
             f.write('\nMixing Energies [eV]\n\n')
             for conf, engy in self.mixing_energies.items():
+                f.write(f"{conf.cid}\n")
+
                 comp_line = ""
                 for el, conc in conf.composition.items():
                     comp_line += f"{el}={conc:1.3f}  "
                 f.write(comp_line[:-2] + '\n')
-                f.write(f"{engy:1.6f}")
+
+                f.write(f"E/N  {conf.norm_energy:2.8f}\n")
+                f.write(f"emix  {engy:1.6f}\n")
 
         if len(self.end_members) == 2:
             self.plot_binary_mixing_energy(write_dir, tuple(self.end_members.keys()))

@@ -142,3 +142,20 @@ class VaspOutcar(VaspFile):
                 last_line_w_energy = line
         energy = strip_split(last_line_w_energy)[-1]
         return float(energy)
+
+    def get_elapsed_time(self):
+        elapsed_time_line = None
+        for line in self.lines:
+            if 'Elapsed time' in line:
+                elapsed_time_line = line
+        elapsed_time = strip_split(elapsed_time_line)[-1]
+        return float(elapsed_time)
+
+    def get_num_ibz_kpoints(self):
+        num_ibz_kpoints_line = None
+        for line in self.lines:
+            if 'irreducible k-points' in line:
+                num_ibz_kpoints_line = line
+        num_ibz_kpoints = strip_split(num_ibz_kpoints_line)[1]
+        return int(num_ibz_kpoints)
+        

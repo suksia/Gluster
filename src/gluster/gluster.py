@@ -9,7 +9,7 @@ from sampling import Sampler
 from vasp_file import VaspIncar, VaspKpoints
 from dataset import Dataset
 
-logging.basicConfig(stream=sys.stdout, level=logging.DEBUG, format='[%(asctime)s] %(message)s', datefmt='%H:%M:%S')
+logging.basicConfig(stream=sys.stdout, level=logging.DEBUG, format='[%(asctime)s] %(message)s', datefmt='%m/%d/%Y %H:%M:%S')
 logger = logging.getLogger('Gluster')
 
 
@@ -263,6 +263,7 @@ if args.dft:
 
 dataset.compute_mixing_energies()
 dataset.plot_mixing_energy(write_dir=TOP_DIR)
+logger.debug(f'Computed, wrote, and plotting mixing energies')
 
 
 ######################## fit CE #######################

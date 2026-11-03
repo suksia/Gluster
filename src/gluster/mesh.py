@@ -12,6 +12,8 @@ from sampling import Sampler
 
 logging.getLogger("matplotlib").setLevel(logging.FATAL)
 
+MAX_ENUM_SAMPLE_ITER_COUNT = 10000
+
         
 class Mesh:
     """A container for configurations sampled by meshing the configuration space."""
@@ -23,7 +25,7 @@ class Mesh:
         self.sampler = sampler
         
         self.alloy_string = alloy_string(self.elements)
-        
+
         self.L = enum_parameters['L']
 
         if type(enum_parameters['mesh']) != list:
@@ -132,6 +134,8 @@ class Mesh:
         dxc_to_comps = dict(sorted(dxc_to_comps.items()))
         dxc_keys = [k for k in dxc_to_comps.keys()]
 
+        num_sample_iters = 0
+
         while len(ordered_configs) < self.N_ordered:
             # sample a distance, then a composition
             sampled_dxc = dxc_keys[self.sampler.sample_exp_distr(len(dxc_keys), self.comp_decay)]
@@ -161,6 +165,10 @@ class Mesh:
                 sampled_config = possible_configs[self.sampler.sample_uni_distr(len(possible_configs))]
 
             ordered_configs.add(sampled_config)
+
+            num_sample_iters += 1
+            if num_sample_iters > MAX_ENUM_SAMPLE_ITER_COUNT:
+                raise RuntimeError(f"Maximum iteration count reached ({MAX_ENUM_SAMPLE_ITER_COUNT}) during sampling loop for enumerated structures")
 
         ordered_configs: list[OrderedConfiguration] = list(ordered_configs)
 
