@@ -69,8 +69,8 @@ class Calculation:
         self.kpar = kpar
         self.ncore = ncore
 
-        self.incar.update_kpar(self.kpar)
-        self.incar.update_ncore(self.ncore)
+        self.incar.update_setting('KPAR', self.kpar)
+        self.incar.update_setting('NCORE', self.ncore)
 
         self.status = 0  # 0 = not run, 1 = running, 2 = finished
         self.process: subprocess.Popen = None
@@ -89,8 +89,8 @@ class Calculation:
 
     def run_vasp(self):
         self.outfile = open(self.dir / 'vasp_std.out', 'w')
-        
-        vasp_cmd = ['srun', f'--ntasks={self.ntasks}', '--export=ALL', '--cpu-bind=cores', 'vasp_std']
+
+        vasp_cmd = ['srun', '-N 1', f'-n {self.ntasks}', '--export=ALL', '--cpu-bind=cores', 'vasp_std']
         if args.dry_run:
             vasp_cmd.append('--dry-run')
 
@@ -106,14 +106,17 @@ class Calculation:
         if poll == 0:
             self.status = 2
             self.outcar = VaspOutcar().load(from_path = self.dir / 'OUTCAR')
-            self.energy = self.outcar.get_energy()
-            self.elapsed_time = self.outcar.get_elapsed_time()
-            self.outfile.write(f'Elapsed time: {math.floor(self.elapsed_time/3600)}hrs {math.floor((self.elapsed_time/60)%60)}min {round((self.elapsed_time%60))}sec')
+
+            if not args.dry_run:
+                self.energy = self.outcar.get_energy()
+                self.elapsed_time = self.outcar.get_elapsed_time()
+                self.outfile.write(f'Elapsed time: {math.floor(self.elapsed_time/3600)}hrs {math.floor((self.elapsed_time/60)%60)}min {round((self.elapsed_time%60))}sec')
+                
             self.outfile.close()
 
 
 if args.dry_run:
-    calc = Calculation(vasp_file_lines, 1, 1, 1)
+    calc = Calculation(0, vasp_file_lines, 1, 1, 1)
     calc.run_vasp()
 
     while calc.status != 2:

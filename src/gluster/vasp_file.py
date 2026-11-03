@@ -41,21 +41,21 @@ class VaspFile:
         #logger.debug(f"{self.name}: Wrote lines to {path}")
         
 class VaspIncar(VaspFile):
-    def update_kpar(self, kpar: int):
+    def update_setting(self, name: str, value):
         for i, line in enumerate(self.lines):
-            if 'KPAR' in line:
-                self.lines[i] = f"KPAR = {kpar}\n"
+            if name in line:
+                self.lines[i] = f"{name} = {value}\n"
                 return
 
-        self.lines.append(f"KPAR = {kpar}\n")
+        self.lines.append(f"{name} = {value}\n")
 
-    def update_ncore(self, ncore: int):
-        for i, line in enumerate(self.lines):
-            if 'NCORE' in line:
-                self.lines[i] = f"NCORE = {ncore}\n"
-                return
-
-        self.lines.append(f"NCORE = {ncore}\n")
+    def remove_setting(self, name: str):
+        new_lines = []
+        for line in self.lines:
+            if name not in line:
+                new_lines.append(line)
+                
+        self.lines = new_lines
 
 class VaspPoscar(VaspFile):
     def __init__(self):
@@ -102,19 +102,28 @@ class VaspPoscar(VaspFile):
 
         self.lattice_vectors = []
         self.species, self.ion_counts, self.lattice_points = [], [], []
+
         pos_start_i = None
-        for i, l in self.lines:
+        for i, l in enumerate(self.lines):
             l = l.strip()
-            if i == 1:
+
+            if i == 0:
+                self.comment_line = l
+
+            elif i == 1:
                 self.scaling_factor = float(l)
+
             elif i in [2, 3, 4]:
                 self.lattice_vectors.append([float(v) for v in l.split()])
+
             elif i == 5:
                 for sp in l.strip():
                     self.species.append(sp)
+
             elif i == 6:
                 for cnt in l.strip():
                     self.ion_counts.append(cnt)
+
             elif i == 7:
                 if l == 'Selective Dynamics':
                     self.coord_system = self.lines[8].strip()
@@ -122,6 +131,7 @@ class VaspPoscar(VaspFile):
                 else:
                     self.coord_system = l
                     pos_start_i = 8
+
             elif i >= pos_start_i:
                 self.lattice_points.append([float(p) for p in l.split()])
 
