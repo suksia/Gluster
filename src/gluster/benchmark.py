@@ -2,9 +2,9 @@
 
 import argparse, logging, sys, yaml, subprocess, time, math, os
 from pathlib import Path
-from copy import copy
+from copy import copy, deepcopy
 
-from vasp_file import VaspFile, VaspIncar, VaspKpoints, VaspPoscar, VaspPotcar, VaspOutcar
+from vasp_file import VaspIncar, VaspKpoints, VaspPoscar, VaspPotcar, VaspOutcar
 
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG, format='[%(asctime)s] %(message)s', datefmt='%m/%d/%Y %H:%M:%S')
 logger = logging.getLogger('Gluster')
@@ -36,36 +36,6 @@ if args.dry_run is None:
     args.dry_run = False
 
 
-"""
-Objective: find the optimal number of cores and their parallelization
-- NTASKS, KPAR, NCORE are related variables
-
-Trial 1:
-- One specific choice of INCAR, KPOINTS, POSCAR, POTCAR
-- Dry run to get IBZ for KPAR
-    - Would not require any looping parameters and mostly tells us how many cores should be used
-    - Could also print out enumerated values
-- Give NTASKS, then allowed KPAR, then allowed NCORE, or enumerate all allowed values from NTASKS
-    - Can also just enumerate KPAR or NTASKS in theory
-
-
-ntasks=1:
-    kpar=1: [ncore=1, ncore=2]
-
-    
-
-ntasks: [1, 2, 3]
-
-
-"""
-
-vasp_files = {
-    'incar': VaspIncar().load(from_string=input_yml['incar']),
-    'kpoints': VaspKpoints().load(from_string=input_yml['kpoints']),
-    'poscar': VaspPoscar().load(from_string=input_yml['poscar']),
-    'potcar': VaspPotcar().load(dirnames=input_yml['potcar'])
-}
-
 TOP_DIR: Path = Path(input_yml['dir']) / input_yml['name']
 
 if TOP_DIR.parent.exists() is False:
@@ -79,18 +49,28 @@ with open(TOP_DIR / 'last_input.yaml', 'w') as f:
 logger.debug(f'Created benchmark directory at {TOP_DIR.as_posix()}')
 
 
+vasp_file_lines = {
+    'incar': input_yml['incar'],
+    'kpoints': input_yml['kpoints'],
+    'poscar': input_yml['poscar'],
+    'potcar': input_yml['potcar'],
+}
+
 class Calculation:
-    def __init__(self, cid: int, vasp_files: dict[str, VaspFile], ntasks: int, kpar: int, ncore: int):
+    def __init__(self, cid: int, vasp_file_lines: dict, ntasks: int, kpar: int, ncore: int):
         self.cid = cid
         
-        self.incar = vasp_files['incar']
-        self.kpoints = vasp_files['kpoints']
-        self.poscar = vasp_files['poscar']
-        self.potcar = vasp_files['potcar']
+        self.incar = VaspIncar().load(from_string=vasp_file_lines['incar'])
+        self.kpoints = VaspKpoints().load(from_string=vasp_file_lines['kpoints'])
+        self.poscar = VaspPoscar().load(from_string=vasp_file_lines['poscar'])
+        self.potcar = VaspPotcar().load(dirnames=vasp_file_lines['potcar'])
 
         self.ntasks = ntasks
         self.kpar = kpar
         self.ncore = ncore
+
+        self.incar.update_kpar(self.kpar)
+        self.incar.update_ncore(self.ncore)
 
         self.status = 0  # 0 = not run, 1 = running, 2 = finished
         self.process: subprocess.Popen = None
@@ -133,7 +113,7 @@ class Calculation:
 
 
 if args.dry_run:
-    calc = Calculation(vasp_files, 1, 1, 1)
+    calc = Calculation(vasp_file_lines, 1, 1, 1)
     calc.run_vasp()
 
     while calc.status != 2:
@@ -158,7 +138,7 @@ for ntasks in input_yml['ntasks']:
             if a % ncore != 0:
                 continue
 
-            calculations[cid] = Calculation(cid, vasp_files, ntasks, kpar, ncore)
+            calculations[cid] = Calculation(cid, vasp_file_lines, ntasks, kpar, ncore)
             cid += 1
 
 queue: dict[int, Calculation] = copy(calculations)

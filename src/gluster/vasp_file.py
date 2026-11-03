@@ -41,7 +41,21 @@ class VaspFile:
         #logger.debug(f"{self.name}: Wrote lines to {path}")
         
 class VaspIncar(VaspFile):
-    pass
+    def update_kpar(self, kpar: int):
+        for i, line in enumerate(self.lines):
+            if 'KPAR' in line:
+                self.lines[i] = f"KPAR = {kpar}\n"
+                return
+
+        self.lines.append(f"KPAR = {kpar}\n")
+
+    def update_ncore(self, ncore: int):
+        for i, line in enumerate(self.lines):
+            if 'NCORE' in line:
+                self.lines[i] = f"NCORE = {ncore}\n"
+                return
+
+        self.lines.append(f"NCORE = {ncore}\n")
 
 class VaspPoscar(VaspFile):
     def __init__(self):
