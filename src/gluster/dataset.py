@@ -128,6 +128,9 @@ class Dataset:
         plt.title(f"{all_str} Mixing Energy")
         plt.grid('True')
 
+        write_dir = write_dir / all_str
+        write_dir.mkdir(exist_ok=True)
+
         fig.savefig(write_dir / f'{all_str} mixing energy.png', bbox_inches='tight')
         
     def plot_ternary_mixing_energy(self, write_dir: Path, elements: tuple[str]):
