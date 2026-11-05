@@ -157,7 +157,7 @@ class VaspPotcar(VaspFile):
 
 class VaspKpoints(VaspFile):
     def update_mesh(self, mesh: list[int, int, int]):
-        self.lines[-1] = f"{mesh[0]} {mesh[1]} {mesh[1]}\n"
+        self.lines[3] = f"{mesh[0]} {mesh[1]} {mesh[1]}\n"
 
 class VaspOutcar(VaspFile):
     def get_energy(self):

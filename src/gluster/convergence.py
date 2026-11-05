@@ -8,6 +8,8 @@ from calculation import Calculation, run_vasp_in_parallel
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG, format='[%(asctime)s] %(message)s', datefmt='%m/%d/%Y %H:%M:%S')
 logger = logging.getLogger('Gluster')
 
+logging.getLogger("matplotlib").setLevel(logging.FATAL)
+
 
 ######################## input ########################
 
@@ -66,7 +68,7 @@ for setting in studies.keys():
         calcs: list[Calculation] = []
         values = []
 
-        for vi, value in enumerate(setting_dict[setting]):
+        for vi, value in enumerate(setting_dict['values']):
             if setting == 'kpoints':
                 setting_str = f"{value[0]}x{value[1]}x{value[1]}"
             elif setting == 'ediffg':
@@ -101,8 +103,10 @@ for setting in studies.keys():
 
             if setting == 'kpoints':
                 calc.kpoints.update_mesh(value)
+                calc.kpoints.write(calc.dir / 'KPOINTS')
             else:
                 calc.incar.update_setting(setting, value)
+                calc.incar.write(calc.dir / 'INCAR')
 
             calcs.append(calc)
             values.append(value)
@@ -111,15 +115,16 @@ for setting in studies.keys():
 
         studies[setting] = {'calculations': calcs, 'values': values}
 
+queue: dict[int, Calculation] = {}
 
 for setting, setting_dict in studies.items():
     if setting_dict is None:
         continue
 
-    logger.debug(f"Running convergence calculations for {setting.upper()}")
+    for calc in setting_dict['calculations']:
+        queue[calc.cid] = calc
 
-    queue = {calc.cid: calc for calc in setting_dict['calculations']}
-    run_vasp_in_parallel(queue)
+run_vasp_in_parallel(queue)
 
 
 ######################## output #######################
@@ -136,6 +141,9 @@ else:
     convergence_file.write('\n')
 
 for setting, setting_dict in studies.items():
+    if setting_dict is None:
+        continue
+
     values, energies, times = [], [], []
 
     for calc, val in zip(setting_dict['calculations'], setting_dict['values']):
@@ -149,24 +157,27 @@ for setting, setting_dict in studies.items():
         times.append(calc.elapsed_time)
 
         if setting == 'kpoints':
-            f.write(f"{calc.cid:<10} {val:<10} {' ':10} {' ':<10} {' ':<10} {calc.energy:<10.2f} {calc.elapsed_time:<10.2f}\n")
+            convergence_file.write(f"{calc.cid:<10} {val:<10} {' ':10} {' ':<10} {' ':<10} {calc.energy:<10.2f} {calc.elapsed_time:<10.2f}\n")
         elif setting == 'encut':
-            f.write(f"{calc.cid:<10} {' ':<10} {val:<10} {' ':<10} {' ':<10} {calc.energy:<10.2f} {calc.elapsed_time:<10.2f}\n")
+            convergence_file.write(f"{calc.cid:<10} {' ':<10} {val:<10} {' ':<10} {' ':<10} {calc.energy:<10.2f} {calc.elapsed_time:<10.2f}\n")
         elif setting == 'ediff':
-            f.write(f"{calc.cid:<10} {' ':<10} {' ':10} {val:<10.2f} {' ':<10} {calc.energy:<10.2f} {calc.elapsed_time:<10.2f}\n")
+            convergence_file.write(f"{calc.cid:<10} {' ':<10} {' ':10} {val:<10.2f} {' ':<10} {calc.energy:<10.2f} {calc.elapsed_time:<10.2f}\n")
         elif setting == 'ediffg':
-            f.write(f"{calc.cid:<10} {' ':<10} {' ':10} {' ':<10} {val:<10.2f} {calc.energy:<10.2f} {calc.elapsed_time:<10.2f}\n")
+            convergence_file.write(f"{calc.cid:<10} {' ':<10} {' ':10} {' ':<10} {val:<10.2f} {calc.energy:<10.2f} {calc.elapsed_time:<10.2f}\n")
+    
+    convergence_file.close()
 
-    fig = plt.figure()
+    fig, ax1 = plt.subplots(figsize=(8,6))
 
-    plt.plot(values, energies)
-    ax2 = plt.twinx()
-    ax2.plot(values, times)
-
-    plt.xlabel(setting.upper())
-    plt.ylabel('Energy [eV]')
+    ax1.plot(values, energies, label='Energy')
+    ax1.set_xlabel(setting.upper())
+    ax1.set_ylabel('Energy [eV]')
+    
+    ax2 = ax1.twinx()
+    ax2.plot(values, times, '--', color='tab:orange')
     ax2.set_ylabel('Elapsed time [sec]')
 
-    plt.title(f"{setting.upper()} Convergence Study")
-
+    ax1.legend()
+    ax1.set_title(f"{setting.upper()} Convergence Study")
+    
     fig.savefig(TOP_DIR / f"{setting}.png", bbox_inches='tight')

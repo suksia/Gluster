@@ -1,4 +1,3 @@
-
 import subprocess, math, logging, os, time
 from pathlib import Path
 
@@ -36,7 +35,7 @@ class Calculation:
         self.elapsed_time: float = None
         self.energy: float = None
 
-        self.dir = cdir / f"ntasks{ntasks}" / f"kpar{kpar}_ncore{ncore}"
+        self.dir = cdir
         self.dir.mkdir(parents=True, exist_ok=True)
 
         self.incar.write(self.dir / 'INCAR')
