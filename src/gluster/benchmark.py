@@ -100,7 +100,7 @@ benchmark_path = TOP_DIR / 'benchmark.out'
 if not benchmark_path.exists():
     with open(benchmark_path, 'w') as f:
         f.write(input_yml['name'] + '\n\n')
-        f.write(f"{'ID':<10} {'NTASKS':<10} {'KPAR':<10} {'NCORE':<10} {'time [sec]':<10f}")
+        f.write(f"{'ID':<10} {'NTASKS':<10} {'KPAR':<10} {'NCORE':<10} {'time [sec]':<10}")
 
 with open(benchmark_path, 'a') as f:
     f.write('\n\n')
@@ -109,4 +109,4 @@ with open(benchmark_path, 'a') as f:
             if calc.ntasks != ntasks:
                 continue
 
-            f.write(f"{cid:<5} {ntasks:<10} {calc.kpar:<10} {calc.ncore:<10} {calc.elapsed_time:<10.2f}\n")
+            f.write(f"{cid:<10} {ntasks:<10} {calc.kpar:<10} {calc.ncore:<10} {calc.elapsed_time:<10.2f}\n")

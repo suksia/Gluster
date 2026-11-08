@@ -1,4 +1,3 @@
-from copy import deepcopy
 import os, time, logging, itertools
 from pathlib import Path
 import matplotlib.pyplot as plt

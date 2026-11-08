@@ -8,6 +8,8 @@ from mesh import Mesh, UnaryMesh, BinaryMesh, TernaryMesh
 from sampling import Sampler
 from vasp_file import VaspIncar, VaspKpoints
 from dataset import Dataset
+from expansion import Expansion, scan_cutoffs
+from utils import ELEMENTS
 
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG, format='[%(asctime)s] %(message)s', datefmt='%m/%d/%Y %H:%M:%S')
 logger = logging.getLogger('Gluster')
@@ -269,4 +271,29 @@ logger.debug(f'Computed, wrote, and plotting mixing energies')
 ######################## fit CE #######################
 
 if args.train:
-    raise NotImplementedError()
+    expan: dict = input_yml['expansion']
+
+    if 'cutoffs' not in expan.keys():
+        cutoffs = []
+    else:
+        cutoffs = expan['cutoffs']
+
+    if 'a0' not in expan.keys():
+        a0 = 0
+        for em in dataset.end_members.keys():
+            a0 += ELEMENTS[em]['a0'] / len(dataset.end_members)
+    else:
+        a0 = expan['a0']
+    
+    expansion = Expansion(dataset, cutoffs, a0)
+
+    if 'scan' in expan.keys():
+        scan: dict = expan['scan']
+        cutoff_vals = np.linspace(*scan['range'])
+
+        scan_cutoffs(scan['order'], cutoff_vals.tolist(), expansion, TOP_DIR)
+
+    if len(cutoffs):
+        expansion.init_cluster_space()
+        expansion.init_structure_container()
+        expansion.fit(write_path = TOP_DIR / 'expansion.ce')
