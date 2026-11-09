@@ -116,7 +116,7 @@ def scan_cutoffs(order: int, cutoff_values: list[float], expansion: Expansion, w
         f.write(f"Cutoffs = {expansion.cutoffs}\n")
         f.write(f"Order = {order}\n\n")
 
-        f.write(f"{'Cutoff':<20} {'RMSE Train (x1e-3)':<20} {'RMSE Val (x1e-3)':<20} {'BIC (x1e+3)':<20} {'# Params':<20} {'# Nonzero Params':<20}\n\n")
+        f.write(f"{'Cutoff':<20} {'RMSE Train [meV/atom]':<20} {'RMSE Val [meV/atom]':<20} {'BIC (x1e+3)':<20} {'# Params':<20} {'# Nonzero Params':<20}\n\n")
         for i, co in enumerate(cutoff_values):
             f.write(f"{co:<20.3f} {scan_data['rmse_train'][i]:<20.5f} {scan_data['rmse_val'][i]:<20.5f} {scan_data['bic'][i]:<20.5f} {scan_data['num_params'][i]:<20} {scan_data['num_nonzero_params'][i]:<20}\n")
 
@@ -126,7 +126,7 @@ def scan_cutoffs(order: int, cutoff_values: list[float], expansion: Expansion, w
     ax = axes[0]
     ax.plot(cutoff_values, scan_data['rmse_train'], '-o', label='Train')
     ax.plot(cutoff_values, scan_data['rmse_val'], '-s', label='Validation')
-    ax.set_ylabel(r'RMSE ($\times 10^{-3}$)')
+    ax.set_ylabel(r'RMSE [meV/atom]')
     ax.legend()
 
     ax = axes[1]

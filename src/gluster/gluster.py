@@ -272,6 +272,8 @@ logger.debug(f'Computed, wrote, and plotting mixing energies')
 
 if args.train:
     expan: dict = input_yml['expansion']
+    expan_dir = TOP_DIR / 'expansion'
+    expan_dir.mkdir(exist_ok=True)
 
     if 'cutoffs' not in expan.keys():
         cutoffs = []
@@ -291,9 +293,14 @@ if args.train:
         scan: dict = expan['scan']
         cutoff_vals = np.linspace(*scan['range'])
 
-        scan_cutoffs(scan['order'], cutoff_vals.tolist(), expansion, TOP_DIR)
+        scan_cutoffs(scan['order'], cutoff_vals.tolist(), expansion, expan_dir)
 
     if len(cutoffs):
         expansion.init_cluster_space()
         expansion.init_structure_container()
         expansion.fit(write_path = TOP_DIR / 'expansion.ce')
+
+        for cid, conf in expansion.dataset.configs.items():
+            conf.expansion_energy = expansion.cluster_expansion.predict(conf.Atoms)
+
+        expansion.dataset.plot_mixing_energy(expan_dir)

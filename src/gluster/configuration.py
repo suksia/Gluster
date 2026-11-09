@@ -52,6 +52,7 @@ class Configuration:
         self.energy: float = None
         self.norm_energy: float = None
         self.mixing_energy: float = None
+        self.expansion_energy: float = None
         
         if self.get_energy():
             self.status = 2

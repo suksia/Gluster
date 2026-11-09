@@ -99,7 +99,7 @@ class Dataset:
         x_element = elements[0]
         all_str = alloy_string(elements)
 
-        x, y = [], []
+        x, y, y_pred = [], [], []
         for conf, me in self.mixing_energies.items():
             skip = False
 
@@ -117,13 +117,19 @@ class Dataset:
             x.append(conf.composition[x_element])
             y.append(me*1000)
 
-        fig = plt.figure()
+            if conf.expansion_energy:
+                y_pred.append(conf.expansion_energy)
 
-        plt.scatter(x, y)
-        plt.xlabel(f"x({x_element})")
-        plt.ylabel(f"Mixing Energy [meV]")
-        plt.title(f"{all_str} Mixing Energy")
-        plt.grid('True')
+        fig, ax = plt.subplots()
+
+        ax.scatter(x, y, label='DFT')
+        if len(y_pred):
+            ax.scatter(x, y_pred, ms='x', label='CE')
+        ax.set_xlabel(f"x({x_element})")
+        ax.set_ylabel(f"Mixing Energy [meV]")
+        ax.set_title(f"{all_str} Mixing Energy")
+        ax.grid('True')
+        ax.legend()
 
         write_dir = write_dir / all_str
         write_dir.mkdir(exist_ok=True)
