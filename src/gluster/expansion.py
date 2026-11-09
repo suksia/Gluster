@@ -2,11 +2,15 @@ from ase import build
 from icet import ClusterSpace, StructureContainer, ClusterExpansion
 from trainstation import CrossValidationEstimator
 from pathlib import Path
-from copy import deepcopy
 import matplotlib.pyplot as plt
 from matplotlib.pyplot import Axes
+from copy import copy
+import warnings, logging
 
 from dataset import Dataset
+
+logger = logging.getLogger('Gluster')
+
 
 class Expansion:
     def __init__(self, dataset: Dataset, cutoffs: list[float], a0: float):
@@ -36,10 +40,18 @@ class Expansion:
             raise RuntimeError(f"Tried to initialize structure container, but cluster space does not exist")
         self.structure_container = StructureContainer(cluster_space=self.cluster_space)
 
+        target_vol = self.a0**3 / 2
+
         for conf in self.dataset.configs.values():
+            conf_vol = conf.Atoms.get_volume() / len(conf.Atoms)
+
+            if conf_vol != target_vol:
+                vol_scale_factor = (target_vol / conf_vol)**(1/3)
+                conf.Atoms.set_cell(conf.Atoms.cell*vol_scale_factor, scale_atoms=False)
+
             self.structure_container.add_structure(
                 structure=conf.Atoms, 
-                user_tag=conf.cid, 
+                user_tag=f"config {conf.cid}", 
                 properties={'mixing_energy': conf.mixing_energy})
 
     def fit(self, write_path: Path = None):
@@ -48,7 +60,7 @@ class Expansion:
         
         # fit cluster expansion
         self.optimizer = CrossValidationEstimator(
-            fit_data= self.structure_container.get_fit_data(key='mixing_energy'), 
+            fit_data = self.structure_container.get_fit_data(key='mixing_energy'), 
             fit_method='ardr')
         self.optimizer.validate()
         self.optimizer.train()
@@ -72,20 +84,31 @@ def scan_cutoffs(order: int, cutoff_values: list[float], expansion: Expansion, w
     if len(expansion.cutoffs) != order-2:
         raise ValueError(f"Need {order-2} cutoffs for lower order clusters in order to scan the cutoff for order {order}")
 
+    dataset, cutoffs, a0 = expansion.dataset, expansion.cutoffs, expansion.a0
+
     scan_data = {'cutoff': [], 'rmse_train': [], 'rmse_val': [], 'bic': [], 'num_params': [], 'num_nonzero_params': []}
 
     for co in cutoff_values:
-        current_expansion = deepcopy(expansion)
+        current_expansion = Expansion(dataset, copy(cutoffs), a0)
         current_expansion.cutoffs.append(co)
 
         current_expansion.init_cluster_space()
         current_expansion.init_structure_container()
-        current_expansion.fit()
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            current_expansion.fit()
+
+            for warning in caught:
+                if issubclass(warning.category, UserWarning):
+                    if 'Warning: Condition number is large' in str(warning.message):
+                        logger.debug(f"Linear problem is ill-conditioned for order {order} and Cutoff value {co:5.3f}")
+                        break
 
         scan_data['cutoff'].append(co)
-        scan_data['rmse_train'].append(current_expansion.rmse_train)
-        scan_data['rmse_val'].append(current_expansion.rmse_val)
-        scan_data['bic'].append(current_expansion.bic)
+        scan_data['rmse_train'].append(1000*current_expansion.rmse_train)
+        scan_data['rmse_val'].append(1000*current_expansion.rmse_val)
+        scan_data['bic'].append(0.001*current_expansion.bic)
         scan_data['num_params'].append(current_expansion.num_params)
         scan_data['num_nonzero_params'].append(current_expansion.num_nonzero_params)
 
@@ -93,32 +116,30 @@ def scan_cutoffs(order: int, cutoff_values: list[float], expansion: Expansion, w
         f.write(f"Cutoffs = {expansion.cutoffs}\n")
         f.write(f"Order = {order}\n\n")
 
-        f.write(f"{'Cutoff':<20} {'RMSE Train':<20} {'RMSE Val':<20} {'BIC':<20} {'# Params':<20} {'# Nonzero Params':<20}\n\n")
+        f.write(f"{'Cutoff':<20} {'RMSE Train (x1e-3)':<20} {'RMSE Val (x1e-3)':<20} {'BIC (x1e+3)':<20} {'# Params':<20} {'# Nonzero Params':<20}\n\n")
         for i, co in enumerate(cutoff_values):
-            f.write(f"{co:<20.2f} {scan_data['rmse_train'][i]:<20.2f} {scan_data['rmse_val'][i]:<20.2f} {scan_data['bic'][i]:<20.2f} {scan_data['num_params'][i]:<20} {scan_data['num_nonzero_params']:<20}\n")
+            f.write(f"{co:<20.3f} {scan_data['rmse_train'][i]:<20.5f} {scan_data['rmse_val'][i]:<20.5f} {scan_data['bic'][i]:<20.5f} {scan_data['num_params'][i]:<20} {scan_data['num_nonzero_params'][i]:<20}\n")
 
-    fig, axes = plt.subplots(3, 1, figsize=(4, 6), sharex=True)
+    fig, axes = plt.subplots(3, 1, figsize=(8, 10), sharex=True)
     axes: list[Axes] = axes
 
     ax = axes[0]
     ax.plot(cutoff_values, scan_data['rmse_train'], '-o', label='Train')
-    ax.plot(cutoff_values, scan_data['rmse_validation'], '-s', label='Validation')
-    ax.set_ylabel('RMSE')
+    ax.plot(cutoff_values, scan_data['rmse_val'], '-s', label='Validation')
+    ax.set_ylabel(r'RMSE ($\times 10^{-3}$)')
     ax.legend()
 
     ax = axes[1]
     ax.plot(cutoff_values, scan_data['bic'], '-o')
-    ax.set_ylabel('BIC')
+    ax.set_ylabel(r'BIC ($\times 10^3)$')
 
     ax = axes[2]
     ax.plot(cutoff_values, scan_data['num_params'], '-o', label='Total')
     ax.plot(cutoff_values, scan_data['num_nonzero_params'], '-o', label='Nonzero')
-    ax.set_xlabel(f'Order {order} cutoff (Å)')
+    ax.set_xlabel(f'Order {order} cutoff [Å]')
     ax.set_ylabel('Number of parameters')
     ax.legend()
-
-    fig.tight_layout()
-    fig.subplots_adjust(hspace=0)
+    
     fig.align_ylabels(axes)
 
     fig.savefig(write_dir / f'scan_{order}.png', bbox_inches='tight')

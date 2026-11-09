@@ -86,16 +86,14 @@ class Dataset:
         for cid, conf in self.configs.items():
             conf.compute_composition()
 
-            if conf.rank == 1:
+            if conf.energy is None:
                 continue
-            elif conf.energy is None:
-                continue
-            else:
-                conf.norm_energy = conf.energy / len(conf.supercell)
+            
+            conf.norm_energy = conf.energy / len(conf.supercell)
 
-                conf.mixing_energy = conf.norm_energy
-                for sp, conc in conf.composition.items():
-                    conf.mixing_energy -= conc*self.end_member_energy[sp]
+            conf.mixing_energy = conf.norm_energy
+            for sp, conc in conf.composition.items():
+                conf.mixing_energy -= conc*self.end_member_energy[sp]
 
     def plot_binary_mixing_energy(self, write_dir: Path, elements: tuple[str]):
         x_element = elements[0]
