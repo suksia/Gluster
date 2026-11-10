@@ -47,14 +47,14 @@ class Expansion:
 
             if conf_vol != target_vol:
                 vol_scale_factor = (target_vol / conf_vol)**(1/3)
-                conf.Atoms.set_cell(conf.Atoms.cell*vol_scale_factor, scale_atoms=False)
+                conf.Atoms.set_cell(conf.Atoms.cell*vol_scale_factor, scale_atoms=True)
 
             self.structure_container.add_structure(
                 structure=conf.Atoms, 
                 user_tag=f"config {conf.cid}", 
                 properties={'mixing_energy': conf.mixing_energy})
 
-    def fit(self, write_path: Path = None):
+    def fit(self):
         if self.structure_container is None:
             raise RuntimeError(f"Tried to fit cluster expansion, but structure container does not exist")
         
@@ -76,9 +76,18 @@ class Expansion:
             parameters=self.optimizer.parameters, 
             metadata=self.optimizer.summary)
 
-        if write_path:
-            self.cluster_expansion.write(write_path)
+    def write(self, write_dir: Path):
+        with open(write_dir / 'cluster_space.out', 'w') as f:
+            f.write(str(self.cluster_space))
 
+        with open(write_dir / 'structure_container.out', 'w') as f:
+            f.write(str(self.structure_container))
+
+        with open(write_dir / 'cluster_expansion.out', 'w') as f:
+            f.write(str(self.cluster_expansion))
+
+        self.cluster_expansion.write(write_dir / 'cluster_expansion.ce')
+        
 
 def scan_cutoffs(order: int, cutoff_values: list[float], expansion: Expansion, write_dir: Path):
     if len(expansion.cutoffs) != order-2:
@@ -116,9 +125,9 @@ def scan_cutoffs(order: int, cutoff_values: list[float], expansion: Expansion, w
         f.write(f"Cutoffs = {expansion.cutoffs}\n")
         f.write(f"Order = {order}\n\n")
 
-        f.write(f"{'Cutoff':<20} {'RMSE Train [meV/atom]':<20} {'RMSE Val [meV/atom]':<20} {'BIC (x1e+3)':<20} {'# Params':<20} {'# Nonzero Params':<20}\n\n")
+        f.write(f"{'Cutoff':<25} {'RMSE Train [meV/atom]':<25} {'RMSE Val [meV/atom]':<25} {'BIC (x1e+3)':<25} {'# Params':<25} {'# Nonzero Params':<25}\n\n")
         for i, co in enumerate(cutoff_values):
-            f.write(f"{co:<20.3f} {scan_data['rmse_train'][i]:<20.5f} {scan_data['rmse_val'][i]:<20.5f} {scan_data['bic'][i]:<20.5f} {scan_data['num_params'][i]:<20} {scan_data['num_nonzero_params'][i]:<20}\n")
+            f.write(f"{co:<25.3f} {scan_data['rmse_train'][i]:<25.5f} {scan_data['rmse_val'][i]:<25.5f} {scan_data['bic'][i]:<25.5f} {scan_data['num_params'][i]:<25} {scan_data['num_nonzero_params'][i]:<25}\n")
 
     fig, axes = plt.subplots(3, 1, figsize=(8, 10), sharex=True)
     axes: list[Axes] = axes
@@ -135,7 +144,7 @@ def scan_cutoffs(order: int, cutoff_values: list[float], expansion: Expansion, w
 
     ax = axes[2]
     ax.plot(cutoff_values, scan_data['num_params'], '-o', label='Total')
-    ax.plot(cutoff_values, scan_data['num_nonzero_params'], '-o', label='Nonzero')
+    ax.plot(cutoff_values, scan_data['num_nonzero_params'], '-s', label='Nonzero')
     ax.set_xlabel(f'Order {order} cutoff [Å]')
     ax.set_ylabel('Number of parameters')
     ax.legend()

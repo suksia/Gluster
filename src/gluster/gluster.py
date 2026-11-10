@@ -93,8 +93,8 @@ if args.enumerate:
             meshes[binary] = mesh
             logger.debug(f'Mesh generated for {binary[0]}-{binary[1]}')
 
-            mesh_dir = TOP_DIR / mesh.alloy_string
-            mesh_dir.mkdir(exist_ok=True)
+            mesh_dir = TOP_DIR / 'mesh' / mesh.alloy_string
+            mesh_dir.mkdir(parents=True, exist_ok=True)
 
             mesh.plot(mesh_dir)
             mesh.plot_mesh_parameters(mesh_dir)
@@ -110,8 +110,8 @@ if args.enumerate:
             meshes[ternary] = mesh
             logger.debug(f'Mesh generated for {ternary[0]}-{ternary[1]}-{ternary[2]}')
 
-            mesh_dir = TOP_DIR / mesh.alloy_string
-            mesh_dir.mkdir(exist_ok=True)
+            mesh_dir = TOP_DIR / 'mesh' / mesh.alloy_string
+            mesh_dir.mkdir(parents=True, exist_ok=True)
 
             mesh.plot(mesh_dir)
             mesh.plot_mesh_parameters(mesh_dir)
@@ -166,7 +166,7 @@ conf: dict[int, dict] = input_yml['configurations']
 configs: dict[int, OrderedConfiguration | DisorderedConfiguration] = {}
 
 for cid, conf_dict in conf.items():
-    conf_dir = TOP_DIR / 'configurations' / str(cid)
+    conf_dir = TOP_DIR / 'datset' / str(cid)
     conf_dir.mkdir(exist_ok=True, parents=True)
 
     positions = [tuple(pos) for pos in conf_dict['basis']['positions']]
@@ -264,7 +264,7 @@ if args.dft:
     dataset.run_jobs()
 
 dataset.compute_mixing_energies()
-dataset.plot_mixing_energy(write_dir=TOP_DIR)
+dataset.plot_mixing_energy(write_dir=TOP_DIR / 'dataset')
 logger.debug(f'Computed, wrote, and plotting mixing energies')
 
 
@@ -298,7 +298,8 @@ if args.train:
     if len(cutoffs):
         expansion.init_cluster_space()
         expansion.init_structure_container()
-        expansion.fit(write_path = TOP_DIR / 'expansion.ce')
+        expansion.fit()
+        expansion.write(expan_dir)
 
         for cid, conf in expansion.dataset.configs.items():
             conf.expansion_energy = expansion.cluster_expansion.predict(conf.Atoms)
