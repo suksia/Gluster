@@ -1,12 +1,11 @@
-import os, time, logging, itertools, yaml
+import os, time, logging, yaml
 from pathlib import Path
-import matplotlib.pyplot as plt
 import numpy as np
 from copy import deepcopy
 
 from configuration import Configuration, OrderedConfiguration, DisorderedConfiguration
-from utils import alloy_string, composition_distance, replicate
-from enumeration import Lattice, Sublattice, BCC
+from utils import composition_distance, replicate
+from enumeration import Lattice, Sublattice
 from sampling import Sampler
 
 try:
@@ -149,7 +148,7 @@ class Dataset:
         
         return retained_compositions
 
-    def sample_ordered_configurations(self, sampler: Sampler, num: int, comp_decay: float, basis_decay: float, max_num_iters=10000):
+    def sample_ordered_configurations(self, sampler: Sampler, num: int, supercell_size: int, comp_decay: float, basis_decay: float, max_num_iters=10000):
         """Sample ordered configurations with an exponential decay for composition distance and basis size."""
         enum_configs, enum_configs_list = self.enumerate_configurations()
         
@@ -203,6 +202,7 @@ class Dataset:
                 else:
                     sampled_config = possible_configs[sampler.sample_uni_distr(len(possible_configs))]
 
+                sampled_config.size = supercell_size
                 ordered_configs.add(sampled_config)
 
                 num_iters += 1
@@ -262,7 +262,7 @@ class Dataset:
             disordered_decorations.append(tuple(decoration))
 
             # define configuration instance
-            config = DisorderedConfiguration(dict(zip(supercell_positions, decoration)), supercell_size)
+            config = DisorderedConfiguration(dict(zip(supercell_positions, decoration)), supercell_size[0])
             disordered_configs.append(config)
 
         return disordered_configs
@@ -399,10 +399,8 @@ class Dataset:
         for conf in self.configurations:
             if conf.energy is None:
                 continue
-            
-            conf.norm_energy = conf.energy / len(conf.supercell)
 
-            conf.mixing_energy = conf.norm_energy
+            conf.mixing_energy = conf.energy
             for sp, conc in conf.composition.items():
                 conf.mixing_energy -= conc*self.end_member_energies[sp]
 

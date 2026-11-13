@@ -11,7 +11,7 @@ from dataset import Dataset
 
 logger = logging.getLogger('Gluster')
 
-raise NotImplementedError()
+
 class Expansion:
     def __init__(self, dataset: Dataset, cutoffs: list[float], a0: float):
         self.dataset = dataset
@@ -33,7 +33,7 @@ class Expansion:
         self.cluster_space = ClusterSpace(
             structure=self.prim, 
             cutoffs=self.cutoffs, 
-            chemical_symbols=[em for em in self.dataset.end_members.keys()])
+            chemical_symbols=list(self.dataset.end_members))
 
     def init_structure_container(self):
         if self.cluster_space is None:
@@ -42,7 +42,7 @@ class Expansion:
 
         target_vol = self.a0**3 / 2
 
-        for conf in self.dataset.configs.values():
+        for conf in self.dataset.configurations:
             conf_vol = conf.Atoms.get_volume() / len(conf.Atoms)
 
             if conf_vol != target_vol:

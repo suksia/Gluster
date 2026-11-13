@@ -2,11 +2,13 @@ import argparse, yaml, logging, sys
 from pathlib import Path
 import numpy as np
 
+from utils import ELEMENTS
 from enumeration import BCC
 from sampling import Sampler
 from vasp_file import VaspIncar, VaspKpoints
 from dataset import Dataset
-from plotting import plot_sampling_parameters, plot_mesh_parameters, plot_mesh, plot_mixing_energy
+from output import plot_sampling_parameters, plot_mesh_parameters, plot_mesh, plot_mixing_energy, write_mixing_energy
+from expansion import Expansion, scan_cutoffs
 
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG, format='[%(asctime)s] %(message)s', datefmt='%m/%d/%Y %H:%M:%S')
 logger = logging.getLogger('Gluster')
@@ -95,7 +97,7 @@ if args.enumerate:
 
     logger.debug(f"Enumerated all sublattices. Found {num_sublattices} possibilities")
 
-    ordered_configs = dft_dataset.sample_ordered_configurations(sampler, enum['N_ordered'], enum['sampling']['composition'], enum['sampling']['basis_size'])
+    ordered_configs = dft_dataset.sample_ordered_configurations(sampler, enum['N_ordered'], enum['supercell_size'], enum['sampling']['composition'], enum['sampling']['basis_size'])
     disordered_configs = dft_dataset.sample_disordered_configurations(sampler, enum['N_disordered'], enum['supercell_size'])
 
     logger.debug(f"Sampled {len(ordered_configs) + len(disordered_configs)} total configurations")
@@ -141,7 +143,8 @@ logger.debug(f"Loaded {len(loaded_configs)} configurations from {configs_path}")
 if args.dft:
     logger.debug('DFT flag set. Running VASP on loaded configurations')
     
-    dft_dir = TOP_DIR / 'dft'    
+    dft_dir = TOP_DIR / 'dft'
+    dft_dir.mkdir(exist_ok=True)
 
     if 'vasp' not in input_yml.keys():
         raise KeyError(f"VASP section missing in input file")
@@ -192,7 +195,8 @@ if args.dft:
         vfs = vasp_files_by_rank['global']
         config.set_vasp_files(overwrite=False, incar=vfs['incar'], kpoints=vfs['kpoints'], potcar_names=vfs['potcar'])
 
-        config.cdir = dft_dir / config.cid
+        config.cdir = dft_dir / str(config.cid)
+        config.cdir.mkdir(exist_ok=True)
         config.write_vasp_files()
 
         config.ncores = ncores_by_rank[rank_name]
@@ -201,126 +205,22 @@ if args.dft:
     dft_dataset.run_jobs()
 
 dft_dataset.compute_mixing_energies()
-#plot_mixing_energy(write_path=TOP_DIR / 'dataset')
 
-logger.debug(f'Computed, wrote, and plotting mixing energies')
+plot_mixing_energy(TOP_DIR / 'DFT_mixing_energies.png', end_members, dft_dataset)
+write_mixing_energy(TOP_DIR / 'DFT_mixing_energies.out', end_members, dft_dataset)
 
-
-"""
-
-
-conf: dict[int, dict] = input_yml['configurations']
-configs: dict[int, OrderedConfiguration | DisorderedConfiguration] = {}
-
-for cid, conf_dict in conf.items():
-    conf_dir = TOP_DIR / 'dataset' / str(cid)
-    conf_dir.mkdir(exist_ok=True, parents=True)
-
-    positions = [tuple(pos) for pos in conf_dict['basis']['positions']]
-    species = conf_dict['basis']['species']
-    basis = dict(zip(positions, species))
-    size = conf_dict['size']
-
-    if 'incar' in conf_dict.keys():
-        incar = VaspIncar().load(from_string=conf_dict['incar'])
-    else:
-        incar = None
-
-    if 'kpoints' in conf_dict.keys():
-        kpoints = VaspKpoints().load(from_string=conf_dict['incar'])
-    else:
-        kpoints = None
-
-    if 'potcar' in conf_dict.keys():
-        potcar_names = conf_dict['potcar']
-    else:
-        potcar_names = None
-
-    if conf_dict['ordered']:
-        H = np.array(conf_dict['H'])
-        configs[cid] = OrderedConfiguration(H, basis, size, cid=cid, cdir=conf_dir)
-        configs[cid].map_to_supercell()
-    else:
-        configs[cid] = DisorderedConfiguration(basis, size, cid=cid, cdir=conf_dir)
-
-    # use calculation-level vasp settings first
-    configs[cid].set_vasp_files(incar=incar, kpoints=kpoints, potcar_names=potcar_names)
-    configs[cid].write_vasp_files()
-
-dataset = Dataset(configs)
-
-logger.debug(f'Initialized {len(configs)} configurations in {TOP_DIR}')
-
-
-####################### run VASP ######################
-
-if args.dft:
-    if 'vasp' not in input_yml.keys():
-        raise KeyError(f"Vasp section missing in input file")
-
-    
-
-    # organize vasp settings by rank
-    vasp_files_by_rank = {'global': None, 'unary': None, 'binary': None, 'ternary': None}
-
-    def init_dft_files(user_input: dict):
-        vasp_file_dict = {'incar': None, 'kpoints': None, 'potcar': None}
-
-        if 'incar' in user_input.keys():
-            vasp_file_dict['incar'] = VaspIncar().load(from_string=user_input['incar'])
-
-        if 'kpoints' in user_input.keys():
-            vasp_file_dict['kpoints'] = VaspKpoints().load(from_string=user_input['kpoints'])
-
-        if 'potcar' in user_input.keys():
-            vasp_file_dict['potcar'] = user_input['potcar']
-
-        return vasp_file_dict
-
-    vasp_files_by_rank['global'] = init_dft_files(vasp)
-
-    for rank in ['unary', 'binary', 'ternary']:
-        if rank in vasp.keys():
-            vasp_files_by_rank[rank] = init_dft_files(vasp[rank])
-
-    ncores_by_rank = {}
-    for rank in ['unary', 'binary', 'ternary']:
-        if rank in vasp.keys():
-            ncores_by_rank[rank] = vasp[rank]['ncores']
-    
-    for cid, config in configs.items():
-        if config.rank == 1:
-            rank_name = 'unary'
-        elif config.rank == 2:
-            rank_name = 'binary'
-        elif config.rank == 3:
-            rank_name = 'ternary'
-
-        # use rank-level settings second
-        vfs = vasp_files_by_rank[rank_name]
-        config.set_vasp_files(overwrite=False, incar=vfs['incar'], kpoints=vfs['kpoints'], potcar_names=vfs['potcar'])
-
-        # use global-level settings last
-        vfs = vasp_files_by_rank['global']
-        config.set_vasp_files(overwrite=False, incar=vfs['incar'], kpoints=vfs['kpoints'], potcar_names=vfs['potcar'])
-
-        config.write_vasp_files()
-
-        config.ncores = ncores_by_rank[rank_name]
-
-    dataset.run_jobs()
-
-dataset.compute_mixing_energies()
-dataset.plot_mixing_energy(write_dir=TOP_DIR / 'dataset')
 logger.debug(f'Computed, wrote, and plotting mixing energies')
 
 
 ######################## fit CE #######################
 
 if args.train:
-    expan: dict = input_yml['expansion']
+    logger.debug('Cluster expansion flag set. Fitting to DFT data')
+    
     expan_dir = TOP_DIR / 'expansion'
     expan_dir.mkdir(exist_ok=True)
+
+    expan: dict = input_yml['expansion']
 
     if 'cutoffs' not in expan.keys():
         cutoffs = []
@@ -329,12 +229,12 @@ if args.train:
 
     if 'a0' not in expan.keys():
         a0 = 0
-        for em in dataset.end_members.keys():
-            a0 += ELEMENTS[em]['a0'] / len(dataset.end_members)
+        for em in dft_dataset.end_members:
+            a0 += ELEMENTS[em]['a0'] / len(dft_dataset.end_members)
     else:
         a0 = expan['a0']
     
-    expansion = Expansion(dataset, cutoffs, a0)
+    expansion = Expansion(dft_dataset, cutoffs, a0)
 
     if 'scan' in expan.keys():
         scan: dict = expan['scan']
@@ -348,15 +248,17 @@ if args.train:
         expansion.fit()
         expansion.write(expan_dir)
 
-        for cid, conf in expansion.dataset.configs.items():
+        for conf in expansion.dataset.configurations:
             conf.expansion_energy = expansion.cluster_expansion.predict(conf.Atoms)
 
-        expansion.dataset.plot_mixing_energy(expan_dir)
+        plot_mixing_energy(TOP_DIR / 'DFT_mixing_energies.png', end_members, dft_dataset)
+        write_mixing_energy(TOP_DIR / 'DFT_mixing_energies.out', end_members, dft_dataset)
 
 
 ####################### analysis ######################
 
 if args.analysis:
+    raise NotImplementedError('Analysis has not been implemented')
     analy: dict = input_yml['analysis']
 
     if 'convex_hull' in analy.keys():
@@ -368,4 +270,3 @@ if args.analysis:
         ch_dataset.compositions = ch_dataset.enumerate_compositions()
         ch_dataset.sublattices = ch_dataset.enumerate_sublattices()
         ch_dataset.configurations = ch_dataset.enumerate_configurations()
-"""

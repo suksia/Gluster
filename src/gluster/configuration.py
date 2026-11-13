@@ -194,6 +194,13 @@ class Configuration:
 
         return success
 
+    def create_Atoms(self):
+        cell = []
+        for lv in self.A_super:
+            cell.append((lv*self.size).tolist())
+
+        self.Atoms = Atoms(scaled_positions=self.supercell.keys(), symbols=self.supercell.values(), cell=cell, pbc=True)
+
     def run_vasp(self):
         self.outfile = open(self.cdir / 'vasp_std.out', 'w')
         vasp_cmd = ['srun', f'--ntasks={self.ncores}', '--export=ALL', 'vasp_std']
@@ -221,11 +228,11 @@ class Configuration:
 
 
 class OrderedConfiguration(Configuration):
-    def __init__(self, H: np.ndarray, basis: dict[tuple[float], str], size: int, cid: int = None, cdir: Path = None):
+    def __init__(self, H: np.ndarray, basis: dict[tuple[float], str], size: int, cid: int = None):
         if len(basis) != int(np.rint(np.linalg.det(H))):
             raise ValueError(f"Number of points in basis ({len(basis)}) does not match determinant of {H}")
 
-        super().__init__(H, basis, size, cid=cid, cdir=cdir)
+        super().__init__(H, basis, size, cid=cid)
         self.ordered = True
 
     def map_to_supercell(self):
@@ -252,11 +259,13 @@ class OrderedConfiguration(Configuration):
                 supercell_map[tuple(lp)] = sp
 
         self.supercell = supercell_map
+        self.create_Atoms()
 
 
 class DisorderedConfiguration(Configuration):
-    def __init__(self, basis: dict[tuple[float], str], size, cid: int = None, cdir: Path = None):
-        super().__init__(np.eye(3), basis, size, cid=cid, cdir=cdir)
+    def __init__(self, basis: dict[tuple[float], str], size, cid: int = None):
+        super().__init__(np.eye(3), basis, size, cid=cid)
 
         self.supercell = basis
         self.ordered = False
+        self.create_Atoms()

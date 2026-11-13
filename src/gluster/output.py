@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from math import cos, sin, atan2, pi
 import logging
 
+from dataset import Dataset
 from configuration import Configuration
 from utils import alloy_string
 
@@ -143,12 +144,12 @@ def plot_mesh(write_path: Path, elements: list[str], compositions: dict[tuple[fl
         plot_ternary_mesh(write_path, elements, compositions)
 
 
-def plot_binary_mixing_energy(write_path: Path, elements: tuple[str], mixing_energies: dict[Configuration, float]):
+def plot_binary_mixing_energy(write_path: Path, elements: tuple[str], dataset: Dataset):
     x_element = elements[0]
     all_str = alloy_string(elements)
 
     x, y, y_pred = [], [], []
-    for conf, me in mixing_energies.items():
+    for conf, me in dataset.mixing_energies.items():
         skip = False
 
         if conf.rank > 2:
@@ -181,25 +182,24 @@ def plot_binary_mixing_energy(write_path: Path, elements: tuple[str], mixing_ene
 
     fig.savefig(write_path, bbox_inches='tight')
 
-def plot_ternary_mixing_energy(write_path: Path, elements: tuple[str], mixing_energies: dict[Configuration, float]):
+def plot_ternary_mixing_energy(write_path: Path, elements: tuple[str], dataset: Dataset):
     raise NotImplementedError('Only binary mixing enegy plotting has been implemented')
 
-def plot_mixing_energy(write_path: Path, elements: tuple[str], mixing_energies: dict[Configuration, float]):
+def plot_mixing_energy(write_path: Path, elements: tuple[str], dataset: Dataset):
     if len(elements) == 2:
         plot_binary_mixing_energy(write_path, elements, mixing_energies)
 
     elif len(elements) == 3:
         plot_ternary_mixing_energy(write_path, elements, mixing_energies)
 
-"""
-def write_mixing_energy(write_path: Path, elements: tuple[str], mixing_energies: dict[Configuration, float]):
+def write_mixing_energy(write_path: Path, elements: tuple[str], dataset: Dataset):
     with open(write_path, 'w') as f:
         f.write("End Member Energies [eV]\n\n")
-        for end_mem, engy in end_member_energy.items():
+        for end_mem, engy in dataset.end_member_energies.items():
             f.write(f"{end_mem} = {engy:2.5f}\n")
 
         f.write('\nMixing Energies [eV]\n\n')
-        for conf, engy in self.mixing_energies.items():
+        for conf, engy in dataset.mixing_energies.items():
             f.write(f"{conf.cid}\n")
 
             comp_line = ""
@@ -207,11 +207,10 @@ def write_mixing_energy(write_path: Path, elements: tuple[str], mixing_energies:
                 comp_line += f"{el}={conc:1.3f}  "
             f.write(comp_line[:-2] + '\n')
 
-            f.write(f"E/N  {conf.norm_energy:2.8f}\n")
+            f.write(f"E/N  {conf.energy:2.8f}\n")
             f.write(f"emix  {engy:1.6f}\n")
             if conf.expansion_energy:
                 f.write(f"pred {conf.expansion_energy:1.6f}\n")
             else:
                 f.write(f"pred \n")
             f.write('\n')
-"""
