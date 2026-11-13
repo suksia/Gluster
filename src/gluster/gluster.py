@@ -1,15 +1,12 @@
-import argparse, yaml, logging, sys, itertools
+import argparse, yaml, logging, sys
 from pathlib import Path
 import numpy as np
 
 from enumeration import BCC
-from configuration import Configuration, OrderedConfiguration, DisorderedConfiguration
-from mesh import Mesh, UnaryMesh, BinaryMesh, TernaryMesh
 from sampling import Sampler
 from vasp_file import VaspIncar, VaspKpoints
 from dataset import Dataset
-from expansion import Expansion, scan_cutoffs
-from utils import ELEMENTS
+from plotting import plot_sampling_parameters, plot_mesh_parameters, plot_mesh, plot_mixing_energy
 
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG, format='[%(asctime)s] %(message)s', datefmt='%m/%d/%Y %H:%M:%S')
 logger = logging.getLogger('Gluster')
@@ -22,6 +19,7 @@ parser.add_argument('input', type=str, help='Path to input file')
 parser.add_argument('--enumerate', '-E', action=argparse.BooleanOptionalAction)
 parser.add_argument('--dft', '-D', action=argparse.BooleanOptionalAction)
 parser.add_argument('--train', '-T', action=argparse.BooleanOptionalAction)
+parser.add_argument('--analysis', '-A', action=argparse.BooleanOptionalAction)
 args = parser.parse_args()
 
 input_fp = Path(args.input).resolve()
@@ -55,26 +53,22 @@ logger.debug(f'Created project directory at {TOP_DIR.as_posix()}')
 
 #################### enumeration ###################
 
-configs: dict[int, Configuration] = {}
+if 'alloy' not in input_yml.keys():
+    raise KeyError(f"Alloy end-members are missing. They must be a list of elements")
+
+end_members: list[str] = input_yml['alloy']
+dft_dataset = Dataset(end_members)
 
 if args.enumerate:
     logger.debug(f'Enumeration flag set. Generating configurations for a new input file')
 
+    enum_dir = TOP_DIR / 'enumeration'
+    enum_dir.mkdir(exist_ok=True)
+
     if 'enumerate' not in input_yml.keys():
         raise KeyError(f"Enumeration section missing in input file")
-
-    if 'configurations' in input_yml.keys():
-        raise KeyError(f"Configurations section already included in input file")
     
     enum: dict = input_yml['enumerate']
-    meshes: dict[tuple[str], Mesh] = {}
-
-    if 'unary' not in enum.keys():
-        raise ValueError(f"Unaries are missing. They must be a list of elements")
-
-    for el in enum['unary']:
-        meshes[tuple(el)] = UnaryMesh(el)
-        logger.debug(f'Mesh generated for {el}')
 
     if 'seed' not in enum.keys():
         seed = None
@@ -82,91 +76,144 @@ if args.enumerate:
         seed = enum['seed']
 
     sampler = Sampler(seed)
+    lattice = BCC(enum['L'])
+
+    dft_dataset.enumerate_unaries()
     
-    if 'binary' in enum.keys():
-        binary_lattice = BCC(enum['binary']['L'])
-        binary_lattice.enumerate_HNF()
-        logger.debug('Initialized binary lattice and enumerated its HNF matrices')
+    all_compositions = dft_dataset.enumerate_compositions(enum['L'])
+    dft_dataset.compositions = all_compositions
 
-        for binary in itertools.combinations(enum['unary'], 2):
-            mesh = BinaryMesh(binary, binary_lattice, sampler, enum['binary'])
-            meshes[binary] = mesh
-            logger.debug(f'Mesh generated for {binary[0]}-{binary[1]}')
+    logger.debug(f"Enumerated all compositions. Found {len(all_compositions)} possibilities")
 
-            mesh_dir = TOP_DIR / 'mesh' / mesh.alloy_string
-            mesh_dir.mkdir(parents=True, exist_ok=True)
+    refined_compositions = dft_dataset.refine_compositions(*enum['mesh'])
+    dft_dataset.compositions = refined_compositions
 
-            mesh.plot(mesh_dir)
-            mesh.plot_mesh_parameters(mesh_dir)
-            mesh.plot_sampling_parameters(mesh_dir)
+    logger.debug(f"Refined compositions. Reduced down to {len(refined_compositions)} possibilities")
 
-    if 'ternary' in enum.keys():
-        ternary_lattice = BCC(enum['ternary']['L'])
-        ternary_lattice.enumerate_HNF()
-        logger.debug('Initialized ternary lattice and enumerated its HNF matrices')
+    dft_dataset.sublattices = dft_dataset.enumerate_sublattices(lattice)
+    num_sublattices = sum([len(sublat_list) for sublat_list in dft_dataset.sublattices.values()])
 
-        for ternary in itertools.combinations(enum['unary'], 3):
-            mesh = TernaryMesh(ternary, ternary_lattice, sampler, enum['ternary'])
-            meshes[ternary] = mesh
-            logger.debug(f'Mesh generated for {ternary[0]}-{ternary[1]}-{ternary[2]}')
+    logger.debug(f"Enumerated all sublattices. Found {num_sublattices} possibilities")
 
-            mesh_dir = TOP_DIR / 'mesh' / mesh.alloy_string
-            mesh_dir.mkdir(parents=True, exist_ok=True)
+    ordered_configs = dft_dataset.sample_ordered_configurations(sampler, enum['N_ordered'], enum['sampling']['composition'], enum['sampling']['basis_size'])
+    disordered_configs = dft_dataset.sample_disordered_configurations(sampler, enum['N_disordered'], enum['supercell_size'])
 
-            mesh.plot(mesh_dir)
-            mesh.plot_mesh_parameters(mesh_dir)
-            mesh.plot_sampling_parameters(mesh_dir)
+    logger.debug(f"Sampled {len(ordered_configs) + len(disordered_configs)} total configurations")
 
-    new_configs_lines = ['\n\nconfigurations:\n']
-    cid = 0
+    dft_dataset.add_configurations(ordered_configs)
+    dft_dataset.add_configurations(disordered_configs)
 
-    for mesh in meshes.values():
-        for config in mesh.configurations:
-            new_configs_lines.append(" "*2 + f"{cid}:\n")
+    dft_dataset.write_yaml(enum_dir / 'dft_dataset.yaml')
 
-            H = []
-            for row in config.H:
-                H.append([int(val) for val in row])
+    logger.debug(f"Wrote sampled configurations to {enum_dir / 'dft_dataset.yaml'}")
 
-            if config.ordered:
-                new_configs_lines.append(" "*4 + "ordered: True\n")
-                new_configs_lines.append(" "*4 + f"H: {H}\n")
-            else:
-                new_configs_lines.append(" "*4 + "ordered: False\n")
+    plot_sampling_parameters(enum_dir / 'sampling_parameters.png', enum['sampling']['composition'], enum['sampling']['basis_size'])
+    plot_mesh_parameters(enum_dir / 'mesh_parameters.png', *enum['mesh'])
+    
+    plot_mesh(enum_dir / 'enumerated_compositions.png', end_members, compositions=all_compositions)
+    plot_mesh(enum_dir / 'refined_compositions.png', end_members, compositions=refined_compositions)
+    plot_mesh(enum_dir / 'ordered_compositions.png', end_members, configurations=ordered_configs)
+    plot_mesh(enum_dir / 'disordered_compositions.png', end_members, configurations=disordered_configs)
 
-            new_configs_lines.append(" "*4 + f"size: {config.size}\n")
-            new_configs_lines.append(" "*4 + "basis:\n")
-            pos_line = " "*6 + f"positions: ["
-            sp_line = " "*6 + f"species: ["
+    logger.debug(f"Plotted sampling parameters and meshes")
 
-            for pos, sp in config.basis.items():
-                pos_line += f"{list(pos)}, "
-                sp_line += f"{sp}, "
-     
-            pos_line = pos_line[:-2] + ']\n' 
-            sp_line = sp_line[:-2] + ']\n'
-
-            new_configs_lines.append(pos_line)
-            new_configs_lines.append(sp_line)
-
-            cid += 1
-
-    with open(TOP_DIR / 'new_input.yaml', 'w') as f:
-        f.writelines(input_yml_lines + new_configs_lines)
-
-    exit()
+    exit()  
 
 
 #################### configurations ###################
 
-if 'configurations' not in input_yml.keys():
-    raise KeyError(f"Configurations section missing in input file")
+if 'configs' not in input_yml.keys():
+    configs_path = TOP_DIR / 'enumeration' / 'dft_dataset.yaml'
+else:
+    configs_path = input_yml['configs']
+
+if not configs_path.exists():
+    raise ValueError(f"[{configs_path}] File not found")
+
+loaded_configs = dft_dataset.read_yaml(configs_path)
+dft_dataset.add_configurations(loaded_configs)
+
+logger.debug(f"Loaded {len(loaded_configs)} configurations from {configs_path}")
+
+
+####################### run VASP ######################
+
+if args.dft:
+    logger.debug('DFT flag set. Running VASP on loaded configurations')
+    
+    dft_dir = TOP_DIR / 'dft'    
+
+    if 'vasp' not in input_yml.keys():
+        raise KeyError(f"VASP section missing in input file")
+
+    vasp: dict = input_yml['vasp']
+
+    # organize vasp settings by rank
+    vasp_files_by_rank = {'global': None, 'unary': None, 'binary': None, 'ternary': None}
+    
+    def init_dft_files(user_input: dict):
+        vasp_file_dict = {'incar': None, 'kpoints': None, 'potcar': None}
+
+        if 'incar' in user_input.keys():
+            vasp_file_dict['incar'] = VaspIncar().load(from_string=user_input['incar'])
+
+        if 'kpoints' in user_input.keys():
+            vasp_file_dict['kpoints'] = VaspKpoints().load(from_string=user_input['kpoints'])
+
+        if 'potcar' in user_input.keys():
+            vasp_file_dict['potcar'] = user_input['potcar']
+    
+        return vasp_file_dict
+    
+    vasp_files_by_rank['global'] = init_dft_files(vasp)
+
+    for rank in ['unary', 'binary', 'ternary']:
+        if rank in vasp.keys():
+            vasp_files_by_rank[rank] = init_dft_files(vasp[rank])
+
+    ncores_by_rank = {}
+    for rank in ['unary', 'binary', 'ternary']:
+        if rank in vasp.keys():
+            ncores_by_rank[rank] = vasp[rank]['ncores']
+        
+    for config in dft_dataset.configurations:
+        if config.rank == 1:
+            rank_name = 'unary'
+        elif config.rank == 2:
+            rank_name = 'binary'
+        elif config.rank == 3:
+            rank_name = 'ternary'
+    
+        # use rank-level settings first
+        vfs = vasp_files_by_rank[rank_name]
+        config.set_vasp_files(incar=vfs['incar'], kpoints=vfs['kpoints'], potcar_names=vfs['potcar'])
+
+        # use global-level settings second
+        vfs = vasp_files_by_rank['global']
+        config.set_vasp_files(overwrite=False, incar=vfs['incar'], kpoints=vfs['kpoints'], potcar_names=vfs['potcar'])
+
+        config.cdir = dft_dir / config.cid
+        config.write_vasp_files()
+
+        config.ncores = ncores_by_rank[rank_name]
+
+    dft_dataset.queue_jobs()
+    dft_dataset.run_jobs()
+
+dft_dataset.compute_mixing_energies()
+#plot_mixing_energy(write_path=TOP_DIR / 'dataset')
+
+logger.debug(f'Computed, wrote, and plotting mixing energies')
+
+
+"""
+
 
 conf: dict[int, dict] = input_yml['configurations']
 configs: dict[int, OrderedConfiguration | DisorderedConfiguration] = {}
 
 for cid, conf_dict in conf.items():
-    conf_dir = TOP_DIR / 'datset' / str(cid)
+    conf_dir = TOP_DIR / 'dataset' / str(cid)
     conf_dir.mkdir(exist_ok=True, parents=True)
 
     positions = [tuple(pos) for pos in conf_dict['basis']['positions']]
@@ -211,7 +258,7 @@ if args.dft:
     if 'vasp' not in input_yml.keys():
         raise KeyError(f"Vasp section missing in input file")
 
-    vasp: dict[str, str | list[str]] = input_yml['vasp']
+    
 
     # organize vasp settings by rank
     vasp_files_by_rank = {'global': None, 'unary': None, 'binary': None, 'ternary': None}
@@ -305,3 +352,20 @@ if args.train:
             conf.expansion_energy = expansion.cluster_expansion.predict(conf.Atoms)
 
         expansion.dataset.plot_mixing_energy(expan_dir)
+
+
+####################### analysis ######################
+
+if args.analysis:
+    analy: dict = input_yml['analysis']
+
+    if 'convex_hull' in analy.keys():
+        conv_hull: dict = analy['convex_hull']
+
+        lattice = BCC(conv_hull['max_basis_size'])
+        ch_dataset = Dataset(end_members, lattice)
+
+        ch_dataset.compositions = ch_dataset.enumerate_compositions()
+        ch_dataset.sublattices = ch_dataset.enumerate_sublattices()
+        ch_dataset.configurations = ch_dataset.enumerate_configurations()
+"""

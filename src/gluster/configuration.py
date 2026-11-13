@@ -1,4 +1,4 @@
-import subprocess, time
+import subprocess, time, logging
 import numpy as np
 from pathlib import Path
 from ase import Atoms
@@ -9,15 +9,28 @@ from math import floor
 from vasp_file import VaspIncar, VaspPoscar, VaspKpoints, VaspPotcar, VaspOutcar
 from utils import is_hnf, replicate, ELEMENTS
 
+logger = logging.getLogger('Gluster')
 
 class Configuration:
-    def __init__(self, H: np.ndarray, basis: dict[tuple[float], str], size: int, cid: int = None, cdir: Path = None):
+    cids = []
+    def __init__(self, H: np.ndarray, basis: dict[tuple[float], str], size: int, cid: int = None):
         if not is_hnf(H):
             raise ValueError(f"Matrix {H} is not in Hermite normal form")
 
-        self.cid = cid
-        self.cdir = cdir
+        next_avail_cid = 0
+        while next_avail_cid in Configuration.cids:
+            next_avail_cid += 1
 
+        if cid is None:
+            self.cid = next_avail_cid
+        elif cid in Configuration.cids:
+            self.cid = next_avail_cid
+            logger.debug(f"WARNING: configuration ID {cid} is taken. Using next available ID instead ({next_avail_cid})")
+        else:
+            self.cid = cid
+
+        Configuration.cids.append(self.cid)
+        
         self.ordered = None
         self.basis = basis
         self.elements = set(self.basis.values())
@@ -36,6 +49,7 @@ class Configuration:
         self.supercell: dict[tuple[float], str] = None
         self.size = size
 
+        self.cdir: Path = None
         self.incar: VaspIncar = None
         self.kpoints: VaspKpoints = None
         self.poscar: VaspPoscar = None
@@ -47,15 +61,13 @@ class Configuration:
         self.start_time: float = None
         self.process_time: float = None
         self.ncores: int = None
-        
+
         self.Atoms: Atoms = None
-        self.energy: float = None
-        self.norm_energy: float = None
+        self.energy: float = None # energy per atom
         self.mixing_energy: float = None
         self.expansion_energy: float = None
-        
-        if self.get_energy():
-            self.status = 2
+
+        self.compute_composition()
           
     def compute_composition(self):
         """Given the supercell dictionary, compute the atomic and fractional composition. Also compute average lattice constant."""
@@ -109,7 +121,7 @@ class Configuration:
         for lv in self.A_super:
             lattice_vectors.append((lv*self.size).tolist())
 
-        ions = {}
+        ions: dict[str, list[tuple[float]]] = {}
         for lp, sp in self.supercell.items():
             if sp not in ions.keys():
                 ions[sp] = [lp]
@@ -169,17 +181,9 @@ class Configuration:
             self.potcar.write(write_dir / 'POTCAR')
 
     def get_energy(self):
-        """Attempts to load POSCAR data and obtain energy for cluster expansion."""
+        """Attempts to obtain energy for cluster expansion from energy.out file."""
         if self.cdir is None:
             return False
-        
-        poscar_path = self.cdir / 'POSCAR'
-        
-        if poscar_path.exists():
-            self.Atoms = read(poscar_path, format='vasp')
-            success = True
-        else:
-            success = False
 
         energy_path = self.cdir / 'energy.out'
         if energy_path.exists():
@@ -206,10 +210,10 @@ class Configuration:
         if poll == 0:
             self.status = 2
             outcar = VaspOutcar().load(from_path = self.cdir / 'OUTCAR')
-            self.energy = outcar.get_energy()
+            self.energy = outcar.get_energy() / len(self.supercell)
 
             with open(self.cdir / 'energy.out', 'w') as f:
-                f.write(f'{self.energy:4.8f}')
+                f.write(f'{self.energy:4.10f}')
 
             self.process_time = time.perf_counter() - self.start_time
             self.outfile.write(f'Total wall time: {floor(self.process_time/3600)}hrs {floor((self.process_time/60)%60)}min {round((self.process_time%60))}sec')
@@ -221,7 +225,7 @@ class OrderedConfiguration(Configuration):
         if len(basis) != int(np.rint(np.linalg.det(H))):
             raise ValueError(f"Number of points in basis ({len(basis)}) does not match determinant of {H}")
 
-        super().__init__(H, basis, size, cid, cdir)
+        super().__init__(H, basis, size, cid=cid, cdir=cdir)
         self.ordered = True
 
     def map_to_supercell(self):
@@ -251,8 +255,8 @@ class OrderedConfiguration(Configuration):
 
 
 class DisorderedConfiguration(Configuration):
-    def __init__(self, basis: dict[tuple[float], str], size: int, cid: int = None, cdir: Path = None):
-        super().__init__(np.eye(3), basis, size, cid, cdir)
+    def __init__(self, basis: dict[tuple[float], str], size, cid: int = None, cdir: Path = None):
+        super().__init__(np.eye(3), basis, size, cid=cid, cdir=cdir)
 
         self.supercell = basis
         self.ordered = False

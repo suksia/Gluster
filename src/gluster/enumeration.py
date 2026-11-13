@@ -3,6 +3,8 @@ from math import floor
 import itertools, more_itertools
 from copy import deepcopy
 
+from configuration import OrderedConfiguration
+
 
 class Sublattice:
     """A sublattice or quotient group of a parent lattice defined by a transformation matrix H."""
@@ -18,10 +20,6 @@ class Sublattice:
 
         self.D, self.U, self.V = None, None, None   # SNF matrices
         self.snf_positions, self.frac_positions = None, None
-
-        self.all_decorations = None
-        self.decorations_no_trans, self.decorations_no_super, self.decorations_no_rot = None, None, None
-        self.decorations = None
 
     def compute_SNF(self):
         """Compute the Smith normal form of the transformation matrix H."""
@@ -146,7 +144,6 @@ class Sublattice:
 
         # non-duplicate permutations of the decoration
         decorations = list(more_itertools.distinct_permutations(decoration))
-        self.all_decorations = deepcopy(decorations)
 
         # define classes of equivalent decorations by translational symmetry
         equiv_classes = []
@@ -178,7 +175,6 @@ class Sublattice:
 
         # keep canonical decorations (first in each class)
         decorations = [eq_cls[0] for eq_cls in equiv_classes]
-        self.decorations_no_trans = deepcopy(decorations)
 
         # check each decoration for super-periodicity (translation produces itself)
         new_decorations = []
@@ -206,7 +202,6 @@ class Sublattice:
                 new_decorations.append(decoration)
 
         decorations = new_decorations
-        self.decorations_no_super = deepcopy(decorations)
         
         # define classes of equivalent decorations by rotational symmetry
         equiv_classes = []
@@ -249,8 +244,12 @@ class Sublattice:
                 equiv_classes.append(eq_cls)
 
         decorations = [eq_cls[0] for eq_cls in equiv_classes]
-        self.decorations_no_rot = deepcopy(decorations)
-        self.decorations = deepcopy(decorations)
+        configurations: list[OrderedConfiguration] = []
+
+        for decoration in decorations:
+            configurations.append(OrderedConfiguration(self.H, dict(zip(self.frac_positions, decoration)), 1))
+
+        return configurations
 
 
 class Lattice:

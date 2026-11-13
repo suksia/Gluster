@@ -11,7 +11,7 @@ from dataset import Dataset
 
 logger = logging.getLogger('Gluster')
 
-
+raise NotImplementedError()
 class Expansion:
     def __init__(self, dataset: Dataset, cutoffs: list[float], a0: float):
         self.dataset = dataset
