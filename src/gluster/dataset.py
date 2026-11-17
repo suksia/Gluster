@@ -32,7 +32,7 @@ class Dataset:
         self.num_available_cores = NTASKS
         
         self.end_member_energies: dict[str, float] = None
-        self.mixing_energies: dict[Configuration, float]
+        self.mixing_energies: dict[Configuration, float] = None
 
     def add_configurations(self, configs: list[Configuration]):
         if self.configurations is None:
@@ -42,10 +42,22 @@ class Dataset:
 
     def sort_configurations(self):
         if self.configurations is None:
-            raise RuntimeError("No compositions are defined")
+            raise RuntimeError("No configurations are defined")
         
         # sort by config ID
         self.configurations.sort(key = lambda config: config.cid)
+
+    def remove_configurations_w_no_energy(self):
+        if self.configurations is None:
+            raise RuntimeError("No configurations are defined")
+        
+        configs = []
+
+        for conf in self.configurations:
+            if conf.energy:
+                configs.append(conf)
+
+        self.configurations = configs 
     
     def enumerate_unaries(self):
         unaries = []
@@ -350,17 +362,22 @@ class Dataset:
 
     def compute_mixing_energies(self):
         # compute energy of end members
+        self.end_member_energies = {}
+
         for conf in self.configurations:
             if conf.rank != 1:
                 continue
 
+            el = conf.elements[0]
+            
             if conf.energy is None:
-                el = conf.elements[0]
                 raise ValueError(f"Need energy for end-member {el} (config {conf.cid}) for calculating mixing energy, but VASP may not have run or finished")
 
             self.end_member_energies[el] = conf.energy
 
         # compute mixing energies
+        self.mixing_energies = {}
+        
         for conf in self.configurations:
             if conf.energy is None:
                 continue

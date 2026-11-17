@@ -35,7 +35,7 @@ class Configuration:
         
         self.ordered = None
         self.basis = basis
-        self.elements = set(self.basis.values())
+        self.elements = list(set(self.basis.values()))
         self.rank = len(self.elements)
 
         self.at_composition: dict[str, int] = None

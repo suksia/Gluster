@@ -151,10 +151,10 @@ def plot_ternary_mixing_energy(write_path: Path, elements: tuple[str], dataset: 
 
 def plot_mixing_energy(write_path: Path, elements: tuple[str], dataset: Dataset):
     if len(elements) == 2:
-        plot_binary_mixing_energy(write_path, elements, mixing_energies)
+        plot_binary_mixing_energy(write_path, elements, dataset)
 
     elif len(elements) == 3:
-        plot_ternary_mixing_energy(write_path, elements, mixing_energies)
+        plot_ternary_mixing_energy(write_path, elements, dataset)
 
 def write_mixing_energy(write_path: Path, elements: tuple[str], dataset: Dataset):
     with open(write_path, 'w') as f:

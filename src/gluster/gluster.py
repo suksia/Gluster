@@ -7,7 +7,7 @@ from enumeration import BCC
 from sampling import Sampler
 from vasp_file import VaspIncar, VaspKpoints
 from dataset import Dataset
-from output import plot_sampling_parameters, plot_mesh_parameters, plot_mesh, plot_mixing_energy, write_mixing_energy
+from output import plot_mesh, plot_mixing_energy, write_mixing_energy
 from expansion import Expansion, scan_cutoffs
 
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG, format='[%(asctime)s] %(message)s', datefmt='%m/%d/%Y %H:%M:%S')
@@ -118,7 +118,7 @@ if args.enumerate:
 if 'dataset' not in input_yml.keys():
     dataset_path = TOP_DIR / 'enumeration' / 'dft_dataset.yaml'
 else:
-    dataset_path = input_yml['dataset']
+    dataset_path = Path(input_yml['dataset'])
 
 if not dataset_path.exists():
     raise ValueError(f"[{dataset_path}] File not found")
@@ -225,7 +225,8 @@ if args.train:
             a0 += ELEMENTS[em]['a0'] / len(dft_dataset.end_members)
     else:
         a0 = expan['a0']
-    
+
+    dft_dataset.remove_configurations_w_no_energy()
     expansion = Expansion(dft_dataset, cutoffs, a0)
 
     if 'scan' in expan.keys():
@@ -243,8 +244,8 @@ if args.train:
         for conf in expansion.dataset.configurations:
             conf.expansion_energy = expansion.cluster_expansion.predict(conf.Atoms)
 
-        plot_mixing_energy(TOP_DIR / 'DFT_mixing_energies.png', end_members, dft_dataset)
-        write_mixing_energy(TOP_DIR / 'DFT_mixing_energies.out', end_members, dft_dataset)
+        plot_mixing_energy(TOP_DIR / 'CE_mixing_energies.png', end_members, dft_dataset)
+        write_mixing_energy(TOP_DIR / 'CE_mixing_energies.out', end_members, dft_dataset)
 
 
 ####################### analysis ######################
