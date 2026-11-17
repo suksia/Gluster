@@ -4,7 +4,7 @@ from pathlib import Path
 from ase import Atoms
 from ase.io import read
 from subprocess import Popen
-from math import floor
+from math import floor, isclose
 
 from vasp_file import VaspIncar, VaspPoscar, VaspKpoints, VaspPotcar, VaspOutcar
 from utils import is_hnf, replicate, ELEMENTS
@@ -21,11 +21,13 @@ class Configuration:
         while next_avail_cid in Configuration.cids:
             next_avail_cid += 1
 
+        self.in_cid = cid
+
         if cid is None:
             self.cid = next_avail_cid
         elif cid in Configuration.cids:
             self.cid = next_avail_cid
-            logger.debug(f"WARNING: configuration ID {cid} is taken. Using next available ID instead ({next_avail_cid})")
+            #logger.debug(f"Configuration ID {cid} is taken. Using next available ID instead ({next_avail_cid})")
         else:
             self.cid = cid
 
@@ -199,7 +201,7 @@ class Configuration:
         for lv in self.A_super:
             cell.append((lv*self.size).tolist())
 
-        self.Atoms = Atoms(scaled_positions=self.supercell.keys(), symbols=self.supercell.values(), cell=cell, pbc=True)
+        self.Atoms = Atoms(symbols=list(self.supercell.values()), scaled_positions=list(self.supercell.keys()), cell=cell, pbc=True)
 
     def run_vasp(self):
         self.outfile = open(self.cdir / 'vasp_std.out', 'w')
@@ -269,3 +271,46 @@ class DisorderedConfiguration(Configuration):
         self.supercell = basis
         self.ordered = False
         self.create_Atoms()
+
+
+def compare_configurations(config1: Configuration, config2: Configuration):
+    """Compare the HNF matrices and basis between two configurations."""
+    if config1.ordered != config2.ordered:
+        return False
+
+    same_H = False
+
+    if np.all(config1.H == config2.H):
+        same_H = True
+
+    same_basis = False
+
+    # different supercell size -> must be different
+    if config1.size != config2.size:
+        pass
+
+    # same number of atoms in basis
+    elif len(config1.basis) == len(config2.basis):
+        basis_compare = []
+
+        # compare positions and decorations
+        for pos_1, dec_1 in config1.basis.items():
+            pos_1 = np.array(pos_1)
+
+            # look for position in the other basis
+            for pos_2, dec_2 in config2.basis.items():
+                pos_2 = np.array(pos_2)
+
+                # if position found, compare decorations
+                if np.allclose(pos_1, pos_2):
+                    if dec_1 == dec_2:
+                        basis_compare.append(True)
+                    else:
+                        basis_compare.append(False)
+
+        same_basis = all(basis_compare)
+                       
+    if same_H and same_basis:
+        return True
+    else:
+        return False

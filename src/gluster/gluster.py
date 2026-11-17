@@ -87,17 +87,12 @@ if args.enumerate:
 
     logger.debug(f"Enumerated all compositions. Found {len(all_compositions)} possibilities")
 
-    refined_compositions = dft_dataset.refine_compositions(*enum['mesh'])
-    dft_dataset.compositions = refined_compositions
-
-    logger.debug(f"Refined compositions. Reduced down to {len(refined_compositions)} possibilities")
-
     dft_dataset.sublattices = dft_dataset.enumerate_sublattices(lattice)
     num_sublattices = sum([len(sublat_list) for sublat_list in dft_dataset.sublattices.values()])
 
     logger.debug(f"Enumerated all sublattices. Found {num_sublattices} possibilities")
 
-    ordered_configs = dft_dataset.sample_ordered_configurations(sampler, enum['N_ordered'], enum['supercell_size'], enum['sampling']['composition'], enum['sampling']['basis_size'])
+    ordered_configs = dft_dataset.sample_ordered_configurations(sampler, enum['N_ordered'], enum['supercell_size'])
     disordered_configs = dft_dataset.sample_disordered_configurations(sampler, enum['N_disordered'], enum['supercell_size'])
 
     logger.debug(f"Sampled {len(ordered_configs) + len(disordered_configs)} total configurations")
@@ -109,33 +104,30 @@ if args.enumerate:
 
     logger.debug(f"Wrote sampled configurations to {enum_dir / 'dft_dataset.yaml'}")
 
-    plot_sampling_parameters(enum_dir / 'sampling_parameters.png', enum['sampling']['composition'], enum['sampling']['basis_size'])
-    plot_mesh_parameters(enum_dir / 'mesh_parameters.png', *enum['mesh'])
-    
     plot_mesh(enum_dir / 'enumerated_compositions.png', end_members, compositions=all_compositions)
-    plot_mesh(enum_dir / 'refined_compositions.png', end_members, compositions=refined_compositions)
     plot_mesh(enum_dir / 'ordered_compositions.png', end_members, configurations=ordered_configs)
     plot_mesh(enum_dir / 'disordered_compositions.png', end_members, configurations=disordered_configs)
 
-    logger.debug(f"Plotted sampling parameters and meshes")
+    logger.debug("Plotted composition space and sampled configurations")
 
     exit()  
 
 
 #################### configurations ###################
 
-if 'configs' not in input_yml.keys():
-    configs_path = TOP_DIR / 'enumeration' / 'dft_dataset.yaml'
+if 'dataset' not in input_yml.keys():
+    dataset_path = TOP_DIR / 'enumeration' / 'dft_dataset.yaml'
 else:
-    configs_path = input_yml['configs']
+    dataset_path = input_yml['dataset']
 
-if not configs_path.exists():
-    raise ValueError(f"[{configs_path}] File not found")
+if not dataset_path.exists():
+    raise ValueError(f"[{dataset_path}] File not found")
 
-loaded_configs = dft_dataset.read_yaml(configs_path)
+loaded_configs = dft_dataset.read_yaml(dataset_path)
 dft_dataset.add_configurations(loaded_configs)
+dft_dataset.sort_configurations()
 
-logger.debug(f"Loaded {len(loaded_configs)} configurations from {configs_path}")
+logger.debug(f"Loaded {len(loaded_configs)} configurations from {dataset_path}")
 
 
 ####################### run VASP ######################
@@ -202,12 +194,12 @@ if args.dft:
         config.ncores = ncores_by_rank[rank_name]
 
     dft_dataset.queue_jobs()
-    dft_dataset.run_jobs()
+    dft_dataset.run_jobs(dft_dir / 'dft_dataset.yaml')
 
 dft_dataset.compute_mixing_energies()
 
-plot_mixing_energy(TOP_DIR / 'DFT_mixing_energies.png', end_members, dft_dataset)
-write_mixing_energy(TOP_DIR / 'DFT_mixing_energies.out', end_members, dft_dataset)
+plot_mixing_energy(TOP_DIR / 'dft_mixing_energies.png', end_members, dft_dataset)
+write_mixing_energy(TOP_DIR / 'dft_mixing_energies.out', end_members, dft_dataset)
 
 logger.debug(f'Computed, wrote, and plotting mixing energies')
 

@@ -11,42 +11,6 @@ from utils import alloy_string
 logging.getLogger("matplotlib").setLevel(logging.FATAL)
 
 
-def plot_sampling_parameters(write_path: Path, comp_decay: float, basis_decay: float):
-    k = 10
-    i = np.arange(0, k)
-
-    w_comp = comp_decay*np.exp(-comp_decay*i/k)
-    w_basis = basis_decay*np.exp(-basis_decay*i/k)
-
-    fig, axes = plt.subplots(2, 1, figsize=(4,6), sharex=True)
-    axes: list[plt.Axes] = axes
-
-    axes[0].bar(i, w_comp)
-    axes[0].set_title(rf"Composition sampling ($\lambda={comp_decay}$)")
-    axes[0].set_ylabel("Probability")
-
-    axes[1].bar(i, w_basis)
-    axes[1].set_title(rf"Basis size sampling ($\lambda={basis_decay}$)")
-    axes[1].set_xlabel("Sampled Value")
-    axes[1].set_ylabel("Probability")
-
-    fig.savefig(write_path, bbox_inches='tight')
-
-def plot_mesh_parameters(write_path: Path, min_mu: float, max_mu: float, rho: float, gamma: float):
-    x = np.linspace(0, 1.5, 50)
-
-    y = min_mu + rho*(x)**gamma
-    y = np.clip(y, a_min=min_mu, a_max=max_mu)
-
-    fig = plt.figure()
-    plt.plot(x, y)
-    plt.xlabel("Distance to Equiatomic")
-    plt.ylabel(r"$\mu$")
-    plt.title(rf"Mesh parameters $\mu_\text{{min}}={min_mu}$, $\mu_\text{{max}}={max_mu}$, $\rho={rho}$, $\gamma={gamma}$)")
-
-    fig.savefig(write_path, bbox_inches='tight')
-
-
 def plot_binary_mesh(write_path: Path, elements: list[str], compositions: dict[tuple[float], int]):
     x, multiplicity = [], []
     for comp, mult in compositions.items():

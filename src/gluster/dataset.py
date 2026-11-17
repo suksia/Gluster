@@ -39,6 +39,13 @@ class Dataset:
             self.configurations = configs
         else:
             self.configurations += configs
+
+    def sort_configurations(self):
+        if self.configurations is None:
+            raise RuntimeError("No compositions are defined")
+        
+        # sort by config ID
+        self.configurations.sort(key = lambda config: config.cid)
     
     def enumerate_unaries(self):
         unaries = []
@@ -119,36 +126,7 @@ class Dataset:
 
         return configurations, configurations_list
 
-    def refine_compositions(self, min_mu: float, max_mu: float, rho: float, gamma: float):
-        """Remove compositions that are very close to ones with a smaller basis size, but increase the density near the equiatomic."""
-        retained_compositions: dict[tuple[float], list[int]] = {}
-                
-        for comp, ls in self.compositions.items():
-            if len(retained_compositions) == 0:
-                retained_compositions[comp] = ls
-                continue
-
-            dxc = composition_distance(comp, self.equiatomic_composition)
-
-            mu = min_mu + rho*(dxc)**gamma
-            mu = min(mu, max_mu)
-
-            retain = True
-            for retained_comp in retained_compositions.keys():
-                dx = composition_distance(comp, retained_comp)
-
-                if dx == 0:
-                    continue
-                
-                if dx <= mu:
-                    retain = False
-
-            if retain:
-                retained_compositions[comp] = ls
-        
-        return retained_compositions
-
-    def sample_ordered_configurations(self, sampler: Sampler, num: int, supercell_size: int, comp_decay: float, basis_decay: float, max_num_iters=10000):
+    def sample_ordered_configurations(self, sampler: Sampler, num: int, supercell_size: int):
         """Sample ordered configurations with an exponential decay for composition distance and basis size."""
         enum_configs, enum_configs_list = self.enumerate_configurations()
         
@@ -156,60 +134,46 @@ class Dataset:
             logger.debug(f"WARNING: too many unique ordered configurations requested (found {len(enum_configs_list)}, but needed at least {num})")
             return enum_configs_list
 
-        else:
-            # arrange compositions by distance to center and sort smallest to largest
-            dxc_to_comps: dict[float, list[tuple[float]]] = {}
+        comps = list(self.compositions.keys())
+        ordered_configs = set()
 
-            for comp in self.compositions.keys():
-                dxc = composition_distance(comp, self.equiatomic_composition)
-            
-                if dxc not in dxc_to_comps.keys():
-                    dxc_to_comps[dxc] = [comp]
-                else:
-                    dxc_to_comps[dxc].append(comp)
-            
-            dxc_to_comps = dict(sorted(dxc_to_comps.items()))
-            dxc_keys = [k for k in dxc_to_comps.keys()]
+        num_iters = 0
         
-            num_iters = 0
-            ordered_configs = set()
+        while len(ordered_configs) < num:
+            # sample a composition
+            sampled_comp = comps[sampler.sample_uni_distr(len(comps))]
+
+            # sample a basis size (l value)
+            possible_ls = self.compositions[sampled_comp]
+            if len(possible_ls) == 1:
+                sampled_l = possible_ls[0]
+            else:
+                sampled_l = possible_ls[sampler.sample_uni_distr(len(possible_ls))]
+
+            # sample a sublattice
+            possible_sublats = self.sublattices[sampled_l]
+            if len(possible_sublats) == 1:
+                sampled_sublat = possible_sublats[0]
+            else:
+                sampled_sublat = possible_sublats[sampler.sample_uni_distr(len(possible_sublats))]
+
+            # sample a configuration
+            possible_configs = enum_configs[sampled_comp][sampled_l][sampled_sublat]
+            if len(possible_configs) == 0:
+                continue
+            elif len(possible_configs) == 1:
+                sampled_config = possible_configs[0]
+            else:
+                sampled_config = possible_configs[sampler.sample_uni_distr(len(possible_configs))]
+
+            sampled_config.size = supercell_size
+            ordered_configs.add(sampled_config)
+
+            num_iters += 1
+            if num_iters > 100000:
+                raise RuntimeError("Maximum iteration count reached. Something went wrong when sampling ordered configurations. Please investigate")
             
-            while len(ordered_configs) < num:
-                # sample a distance, then a composition
-                sampled_dxc = dxc_keys[sampler.sample_exp_distr(len(dxc_keys), comp_decay)]
-                sampled_comp = dxc_to_comps[sampled_dxc][sampler.sample_uni_distr(len(dxc_to_comps[sampled_dxc]))]
-
-                # sample a basis size (l value)
-                possible_ls = self.compositions[sampled_comp]
-                if len(possible_ls) == 1:
-                    sampled_l = possible_ls[0]
-                else:
-                    sampled_l = possible_ls[sampler.sample_exp_distr(len(possible_ls), basis_decay)]
-
-                # sample a sublattice
-                possible_sublats = self.sublattices[sampled_l]
-                if len(possible_sublats) == 1:
-                    sampled_sublat = possible_sublats[0]
-                else:
-                    sampled_sublat = possible_sublats[sampler.sample_uni_distr(len(possible_sublats))]
-
-                # sample a configuration
-                possible_configs = enum_configs[sampled_comp][sampled_l][sampled_sublat]
-                if len(possible_configs) == 0:
-                    continue
-                elif len(possible_configs) == 1:
-                    sampled_config = possible_configs[0]
-                else:
-                    sampled_config = possible_configs[sampler.sample_uni_distr(len(possible_configs))]
-
-                sampled_config.size = supercell_size
-                ordered_configs.add(sampled_config)
-
-                num_iters += 1
-                if num_iters > max_num_iters:
-                    raise RuntimeError(f"WARNING: Maximum iteration count reached. Keeping {len(ordered_configs)} ordered configurations")
-                
-            return list(ordered_configs)
+        return list(ordered_configs)
 
     def sample_disordered_configurations(self, sampler: Sampler, num: int, supercell_size: int):
         """Sample disordered configurations uniformly across the composition space."""
@@ -346,7 +310,7 @@ class Dataset:
             if conf.status == 0:
                 self.queue[conf.cid] = conf
 
-    def run_jobs(self):
+    def run_jobs(self, write_path: Path):
         if len(self.queue) == 0:
             logger.debug(f"Queue is empty, skipping VASP")
 
@@ -377,6 +341,7 @@ class Dataset:
                     continue
                 elif conf.status == 2:
                     self.num_available_cores += conf.ncores
+                    self.write_yaml(write_path)
                     finished.append(cid)
                     logger.debug(f'VASP finished for config {cid} (# cores ready: {self.num_available_cores})')
 

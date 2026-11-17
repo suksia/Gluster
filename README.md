@@ -1,79 +1,124 @@
-_Gluster_ is Pythonic glue code connecting VASP and the [icet](https://icet.materialsmodeling.org/index.html) cluster expansion package. The One Input File (OIF) philosophy is a core tenet, which dictates that the execution of a computational task (e.g., fitting and analyzing a cluster expansion) should be completely described by a single user-created input file called "the OIF."
+_Gluster_ is Python-based glue code connecting VASP and the [icet](https://icet.materialsmodeling.org/index.html) cluster expansion package. To facilitate this connection, a workflow is prescribed consisting of (1) generating a training dataset by sampling from a composition space, (2) running DFT on all sampled configurations, (3) fitting a cluster expansion to this dataset, and (4) analyzing properties of the composition space via, for example, the convex hull and free energy calculations.
+
+To maximize reproducibility and be more compatible with computing cluster workflows, the user is tasked with writing (or generating) YAML files which contain all settings and data used to obtain and use a cluster expansion.
+
+Note: _Gluster_ was specifically designed for the body-centered cubic W-Mo-V system.
 
 # Installation
 
+To install the repository, the following steps should be taken
 ```
+git clone https://github.com/suksia/Gluster.git
+conda create -n <env_name> python=3.14.6
+conda activate <env_name>
+conda config --add channels conda-forge
 conda install -c conda-forge icet=4.0
 pip install -r requirements.txt
 ```
 
-# Stage 1: Generating Configurations
-
-Configurations with arbitrary order can be described by a _chemical basis_, which forms a superlattice of the underlying lattice (i.e., bcc, fcc, hcp). It contains $Q$ lattice points along with a mapping between said lattice points and a set of occupancy probabilities $\{p_{\sigma_i}\}$, where $\sigma_i=0,1,...,M$ are the allowed species on site $i$ and $M$ is the alloy order (binary, ternary, ...).
-
-A chemical basis $\mathbf{A}'$ is constructed by applying a transformation matrix $\mathbf{P}$ in Hermite normal form (HNF) to the primitive basis $\mathbf{A}$. HNF requires $$\mathbf{P} = \begin{pmatrix} a & 0 & 0 \\ b & c & 0 \\ d & f & g \end{pmatrix}, \qquad 0\leq b < c, \qquad 0 \leq d,\,f < g,$$ using the row-convention form. Column-convention form would be written in the same way as $\mathbf{P}^{\mathsf{T}}$ and produces a different basis. If $\mathbf{A}$ is written with the lattice vectors as column vectors, $$\mathbf{A}' = \mathbf{A}\mathbf{P}.$$ Since $Q=|\det\mathbf{P}|$, the chemical basis usually contains additional lattice points. These points can be determined algorithmically by enumerating a sufficient set of integer vectors $\mathbf{n}=(n_x, n_y, n_z)$ with $n_x,n_y,n_z=0,1,2,\dots$ and computing $$\mathbf{f}_j = \mathbf{P}^{-1}\mathbf{n}_j \mod 1,$$ where the modulo operator is applied element-wise. The vectors $\mathbf{f}_j$ are the fractional coordinates of all possible lattice points $\mathbf{A}'$ which have been reduced to within the first unit cell of this new basis. All unique vectors in this list form the basis points of $\mathbf{A}'$ represented as $\mathbf{b}_\alpha$. 
-
-### Specifying a Basis
-
-Often $\mathbf{b}_\alpha$ is not known ahead of time, so they are always printed to file named `basis.out` along with the transformed lattice vectors $\mathbf{A}'/a_0$. For each basis point, the chemical mapping must be provided as a dictionary of occupancy probabilities or as species name. A minimal input file is shown below, which contains two configurations: one is a disordered $\text{W}_{50} \text{V}_{50}$ alloy, while the other is an ordered version. 
-
-In configuration (0), the primitive lattice vectors are used and every lattice point in the conventional $4\times 4\times 4$ supercell (128 atoms) is randomly decorated with either $\text{W}$ or $\text{V}$. In configuration (1), a 2-atom basis with a fixed ordering is used. Since (1) is fully ordered, the composition can be determined directly from the basis occupancy and therefore does not need to be provided. However, (0) is disordered and the composition would vary randomly if the species were sampled without replacement. The composition, expressed in terms of the number of each species in the conventional supercell, provides counters which are decremented during decoration, thus fixing it.
-
-```YAML
-name: example_01
-dir: <working directory path>
-
-configurations:
-    0: 
-        size: [4, 4, 4]
-        transform: [[1, 0, 0], 
-                    [0, 1, 0], 
-                    [0, 0, 1]]
-        basis:
-            "0, 0, 0": {W: 0.5, V: 0.5}
-        comp: {W: 64, V: 64}
-    1: 
-        size: [3, 3, 3]
-        transform: [[1, 0, 0], 
-                    [1, 2, 0], 
-                    [0, 0, 1]]
-        basis:
-            "0, 0, 0": W
-            "0, 0.5, 0": {V: 1.0}
+To set the location and type of POTCAR files to use, a POTCAR directory must be redefined at the top of `Gluster/src/gluster/vasp_file.py`
+```python
+POTCAR_DIR = Path('/path/to/potcar_dir/')
 ```
 
-At the very least, a configuration <u>must</u> have a transformation matrix given by the `transform` kwarg. The basis positions can then be copied from `basis.out` and given chemical mappings. If a configuration is not fully defined (i.e., necessary kwargs are missing), _Gluster_ does not attempt to run VASP  on this configuration or include it in the cluster expansion fitting dataset. To prevent _Gluster_ from running VASP and fitting a cluster expansion entirely, the `check-basis` flag can be set.
+# Step 1: Preparing a Training Dataset
+
+Two types of configurations, ordered and disordered, can be used to train a cluster expansion. The training dataset should contain all cluster types that may appear during inference which would include ground state (0K) configurations and partially or fully disordered configurations at finite temperature. 
+
+Ordered configurations can be defined minimally by a transformation matrix in Hermite normal form (HNF) and a decoration mapping basis point positions to chemical elements. These positions are not defined using a real coordinate system and are instead in the _SNF coordinate system_ which are converted internally to fractional supercell coordinates. Disordered configurations only require a decoration mapping fractional positions to chemical elements.
+
+While a list of configurations could be prepared by hand, _Gluster_ has the ability to enumerate all possible ordered configurations given a maximum basis size, randomly sample a specified amount, and write the necessary information to an output YAML file. Specifically, it applies the following set of sampling steps for each configuration.
+
+1. Sample a composition
+2. Sample a generating basis size
+    - Ex. 50-50 can be generated by $l=2, 4, 6, ...$
+3. Sample an HNF matrix
+4. Sample a decoration
+
+Disordered configurations all share the same basis, so their sampling only includes step 4. Note, the Hart-Forcade algorithm is used to remove any configurations that are equivalent by symmetry so that the resulting set of configurations are guaranteed to be energetically distinct. A review of the theoretical details is provided in the section [Theory of Supercell Enumeration](#theory-of-supercell-enumeration).
+
+The enumeration settings are provided via an input YAML file with the following format.
+
+```yaml
+name: <string; name of project>
+dir: <string, path-like; path to place project>
+alloy: <list of strings; end-members defining the alloy system and rank>
+
+enumerate:
+  seed: <integer; seed for initializing RNG>
+  L: <integer; maximum basis size>
+  N_ordered: <integer; number of ordered configurations to sample> 
+  N_disordered: <integer; number of disordered configurations to sample> 
+  supercell_size: <integer; number of conventional unit cell replications in each direction> 
+```
+
+To run the enumeration, set the appropariate flag when running `gluster.py`.
 ```bash
-python Gluster/src/gluster.py in.yml --check-basis
+python src/gluster/gluster.py <input_yaml_path> -E
 ```
-If a configuration is fully defined, _Gluster_ will write an XYZ file for the bases and decorated conventional supercells in the `xyz/` sub-directory. Since a disordered configuration may change between runs, a `POSCAR` can be provided using the `poscar` kwarg to lock-in a specific arrangement, though the other kwargs used to generate it should still be included as it fingerprints the configuration.
 
-### OIF Template
+A subdirectory `project-dir/enumeration` will be created which will contain `dft_dataset.yaml` with the following format. The dataset file is a list of configurations, each with a different configuration ID. This file can be modified manually to add or remove configurations, add energies, etc. 
 
-```YAML
-name: <name of directory>
-dir: <working directory path>
-lattice: <bcc, fcc, hcp; ONLY bcc is IMPLEMENTED>
-potential: <path to directory containing POTCAR files>
-
-configurations:
-    <id>:
-        run: <boolean value forcing VASP files to be regenerated and VASP to be run (see section 2); default = True unless POSCAR and energy.out exist>
-        size: <list of three positive integers [Nx, Ny, Nz] for generating the conventional supercell> 
-        transform: <3x3 matrix in Hermite normal form used to transform the primitive lattice vectors>
-        basis: 
-            <fractional coordinates of basis point>: <dictionary mapping species to occupancy probabilities, or a species symbol>
-            ...
-        comp: <dictionary mapping species to percentage or number of atoms in the conventional supercell>
-        ncores: <number of cores (MPI ranks) to launch VASP with for this configuration>
-        incar: |
-            <INCAR lines for this configuration>
-        poscar: |
-            <POSCAR lines for this configuration>
-        kpoints: |
-            <KPOINTS lines for this configuration>
-        potcar: <list of directory names (e.g., [W_sv, Mo, V_pv]) to load each POTCAR file from>
-    ...
+```yaml
+<ID>:
+  ordered: <bool; True if ordered, False if disordered>
+  H: <list of lists of ints; rows of the HNF matrix, not required if disordered>
+  size: <integer; number of conventional unit cell replications in each direction> 
+  basis:
+    positions: <list of lists of floats; basis positions; SNF coordinates if ordered; fractional coordinates if disordered> 
+    species: <list of strings; elements associated with each basis position>
+  energy: <float; energy per atom as computed by DFT (if available)>
+...
 ```
+
+This subdirectory also contains plots of the composition space `project_dir/enumeration/enumerated_compositions.png` and the sampled configurations on it `project_dir/enumeration/(dis)ordered_configurations.png`. A colorbar indicating multiplicity is included for all plots which refers to the number of basis sizes $l$ that produce the same composition for the former, and the number of configurations with the same compositions in the latter.
+
+Multiple datasets can be merged by creating an input YAML file with the following format,
+
+```yaml
+name: <string; name of project>
+dir: <string, path-like; path to place project>
+alloy: <list of strings; end-members defining the alloy system and rank>
+
+datasets:
+  - <str; path to dataset 1>
+  - <str; path to dataset 2>
+  ...
+```
+
+and running `mergy.py`.
+```bash
+python src/gluster/merge.py <input_yaml_path>
+```
+
+The same configuration could appear in multiple datasets, and ideally it should have the same or very similar energy in each case. If a duplicate is found, the first instance with a defined energy is used.
 
 # Stage 2: Running VASP
+
+
+
+
+# Theory of Supercell Enumeration
+
+Reference: G. L. Hart and R. W. Forcade (2008), "Algorithm for generating derivative structures", Phys. Rev. B __77__ 224115
+
+Following the Gibbs free energy equation, ground state configurations have zero entropy and are therefore fully ordered. An arbitrary ordering can be obtained by defining a non-primitive unit cell with $l$ basis points and repeating it in every direction over all space. Mathematically, we define one such unit cell, or quotient group, by a matrix in Hermite normal form (HNF)
+
+$$\mathbf{H} = \begin{pmatrix} a & 0 & 0 \\ b & c & 0 \\ d & f & g \end{pmatrix}, \qquad 0\leq b < c, \qquad 0 \leq d,\,f < g,$$
+
+which transforms the primitive lattice vectors
+
+$$\mathbf{B} = \mathbf{A}\mathbf{H}.$$
+
+Keeping in this convention, the primitive lattice vectors must be written as columns of $\mathbf{A}$, which for bcc is
+
+$$\mathbf{A} = \begin{pmatrix} | & | & | \\ \mathbf{a}_1 & \mathbf{a}_2 & \mathbf{a}_3 \\ | & | & | \end{pmatrix} = \frac{a_0}{2}\begin{pmatrix} 1 & -1 & 1 \\ 1 & 1 & -1 \\ -1 & 1 & 1 \end{pmatrix}.$$
+
+The number of basis points (or atoms in metals) is given by $l=\det\mathbf{H}$. The basis size implicitly determines which compositions can be realized. For example, a 3-atom basis in a binary alloy system could only produce $AB_2$, $A_2B$ alloys, and for a ternary only the equiatomic $ABC$ could be produced. As the basis size increases more compositions can be obtained, though due to the limited size of DFT supercells, the periodicity becomes increasingly reduced. For example, a 100-atom basis could produce compositions with a concentration of a single component as low as 1 at.%, but a $4\times4\times4$ conventional bcc supercell only contains 128 atoms, and thus the system would effectively have no periodicity and be fully disordered.
+
+Given the rotational symmetry of the parent lattice, some HNF matrices may be equivalent and would therefore produce configurations with the same DFT energies. For example,
+$$\mathbf{H} = \begin{pmatrix} 1 &  &  \\ 1 & 2 &   \\ 0 & 0 & 1 \end{pmatrix} \cong \begin{pmatrix} 1 &  &  \\ 1 & 1 &   \\ 0 & 1 & 2 \end{pmatrix} \cong \begin{pmatrix} 1 &  &  \\ 0 & 1 &   \\ 0 & 0 & 2 \end{pmatrix},$$
+
+up to the cubic point group symmetry. The first step in de-duplicating configurations is to remove any $\mathbf{H}$ that are rotationally equivalent. Next, the basis positions can be found by reducing $\mathbf{H}$ to its Smith normal form (SNF) $\mathbf{D} = \mathbf{P}\mathbf{H}\mathbf{Q}$, where $\mathbf{D}$ is a diagonal matrix with each diagonal element $d_{i+1}$ being divisible by the previous diagonal element $d_{i}$ and $\mathbf{P}, \mathbf{Q}$ are unimodular matrices. The diagonal elements are indices 
+
+ which can be converted to fractional coordinates via $$\mathbf{f} = \mathbf{H}^{-1} \mathbf{U}^{-1}\mathbf{s}\,\,\text{mod}\,1,$$
