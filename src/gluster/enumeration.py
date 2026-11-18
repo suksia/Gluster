@@ -247,7 +247,7 @@ class Sublattice:
         configurations: list[OrderedConfiguration] = []
 
         for decoration in decorations:
-            configurations.append(OrderedConfiguration(self.H, dict(zip(self.frac_positions, decoration)), 1))
+            configurations.append(OrderedConfiguration(self.H, dict(zip(self.frac_positions, decoration))))
 
         return configurations
 

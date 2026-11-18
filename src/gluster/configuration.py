@@ -2,18 +2,17 @@ import subprocess, time, logging
 import numpy as np
 from pathlib import Path
 from ase import Atoms
-from ase.io import read
 from subprocess import Popen
-from math import floor, isclose
+from math import floor
 
 from vasp_file import VaspIncar, VaspPoscar, VaspKpoints, VaspPotcar, VaspOutcar
-from utils import is_hnf, replicate, ELEMENTS
+from utils import is_hnf, ELEMENTS
 
 logger = logging.getLogger('Gluster')
 
 class Configuration:
     cids = []
-    def __init__(self, H: np.ndarray, basis: dict[tuple[float], str], size: int, cid: int = None):
+    def __init__(self, H: np.ndarray, basis: dict[tuple[float], str], cid: int = None):
         if not is_hnf(H):
             raise ValueError(f"Matrix {H} is not in Hermite normal form")
 
@@ -47,10 +46,6 @@ class Configuration:
         self.B = self.A_prim @ self.H
         self.B_inv = np.linalg.inv(self.B)
 
-        self.A_super = np.eye(3)
-        self.supercell: dict[tuple[float], str] = None
-        self.size = size
-
         self.cdir: Path = None
         self.incar: VaspIncar = None
         self.kpoints: VaspKpoints = None
@@ -72,14 +67,9 @@ class Configuration:
         self.compute_composition()
           
     def compute_composition(self):
-        """Given the supercell dictionary, compute the atomic and fractional composition. Also compute average lattice constant."""
-        if self.supercell is None:
-            mapping = self.basis
-        else:
-            mapping = self.supercell
-
+        """Compute the atomic and fractional composition. Also compute the average lattice constant."""
         self.at_composition = {}
-        for sp in mapping.values():
+        for sp in self.basis.values():
             if sp not in self.at_composition.keys():
                 self.at_composition[sp] = 1
             else:
@@ -103,16 +93,13 @@ class Configuration:
             raise ValueError('a0 must be provided if the average lattice constant is not being used')
 
         self.A_prim /= self.a0
-        self.A_super /= self.a0
+        self.B /= self.a0
 
         self.a0 = a0
         self.A_prim *= a0
-        self.A_super *= a0
+        self.B *= a0
 
     def create_poscar(self):
-        if self.supercell is None:
-            raise ValueError(f"Supercell must be defined to create POSCAR")
-
         if self.composition is None:
             self.compute_composition()
 
@@ -120,11 +107,11 @@ class Configuration:
             self.set_lattice_const(avg=True)
 
         lattice_vectors = []
-        for lv in self.A_super:
-            lattice_vectors.append((lv*self.size).tolist())
+        for lv in self.B:
+            lattice_vectors.append(lv.tolist())
 
         ions: dict[str, list[tuple[float]]] = {}
-        for lp, sp in self.supercell.items():
+        for lp, sp in self.basis.items():
             if sp not in ions.keys():
                 ions[sp] = [lp]
             else:
@@ -198,10 +185,10 @@ class Configuration:
 
     def create_Atoms(self):
         cell = []
-        for lv in self.A_super:
-            cell.append((lv*self.size).tolist())
+        for lv in self.B:
+            cell.append(lv.tolist())
 
-        self.Atoms = Atoms(symbols=list(self.supercell.values()), scaled_positions=list(self.supercell.keys()), cell=cell, pbc=True)
+        self.Atoms = Atoms(symbols=list(self.basis.values()), scaled_positions=list(self.basis.keys()), cell=cell, pbc=True)
 
     def run_vasp(self):
         self.outfile = open(self.cdir / 'vasp_std.out', 'w')
@@ -230,45 +217,21 @@ class Configuration:
 
 
 class OrderedConfiguration(Configuration):
-    def __init__(self, H: np.ndarray, basis: dict[tuple[float], str], size: int, cid: int = None):
+    def __init__(self, H: np.ndarray, basis: dict[tuple[float], str], cid: int = None):
         if len(basis) != int(np.rint(np.linalg.det(H))):
             raise ValueError(f"Number of points in basis ({len(basis)}) does not match determinant of {H}")
 
-        super().__init__(H, basis, size, cid=cid)
+        super().__init__(H, basis, cid=cid)
+
         self.ordered = True
-
-    def map_to_supercell(self):
-        """Replicates the conventional supercell and maps the basis onto it."""
-        conv_basis_pos = [np.array([0, 0, 0]), np.array([0.5, 0.5, 0.5])]
-        supercell_size = tuple([self.size]*3)
-        supercell_positions = replicate(self.A_super, conv_basis_pos, supercell_size)
-
-        supercell_map = {}
-        for lp in supercell_positions:
-            lp_reduced = np.round(self.B_inv @ lp, 6) % 1.0
-
-            bp_found = False
-            for bp, sp in self.basis.items():
-                if np.allclose(lp_reduced, bp):
-                    bp_found = bp
-                    break
-
-            if bp_found is False:
-                raise ValueError(f"[{self.cid}] Could not match supercell position f={lp} with any basis point. Please investigate")
-            else:
-                lp /= np.array(supercell_size)
-                lp = lp.tolist()
-                supercell_map[tuple(lp)] = sp
-
-        self.supercell = supercell_map
         self.create_Atoms()
-
+        
 
 class DisorderedConfiguration(Configuration):
-    def __init__(self, basis: dict[tuple[float], str], size, cid: int = None):
-        super().__init__(np.eye(3), basis, size, cid=cid)
+    def __init__(self, basis: dict[tuple[float], str], size: int, cid: int = None):
+        super().__init__(np.eye(3), basis, cid=cid)
 
-        self.supercell = basis
+        self.B = size*np.eye(3)
         self.ordered = False
         self.create_Atoms()
 
@@ -285,12 +248,8 @@ def compare_configurations(config1: Configuration, config2: Configuration):
 
     same_basis = False
 
-    # different supercell size -> must be different
-    if config1.size != config2.size:
-        pass
-
     # same number of atoms in basis
-    elif len(config1.basis) == len(config2.basis):
+    if len(config1.basis) == len(config2.basis):
         basis_compare = []
 
         # compare positions and decorations

@@ -138,7 +138,7 @@ class Dataset:
 
         return configurations, configurations_list
 
-    def sample_ordered_configurations(self, sampler: Sampler, num: int, supercell_size: int):
+    def sample_ordered_configurations(self, sampler: Sampler, num: int):
         """Sample ordered configurations with an exponential decay for composition distance and basis size."""
         enum_configs, enum_configs_list = self.enumerate_configurations()
         
@@ -178,7 +178,6 @@ class Dataset:
             else:
                 sampled_config = possible_configs[sampler.sample_uni_distr(len(possible_configs))]
 
-            sampled_config.size = supercell_size
             ordered_configs.add(sampled_config)
 
             num_iters += 1
@@ -260,8 +259,7 @@ class Dataset:
             
             if conf_data['ordered']:
                 H = np.array(conf_data['H'])
-                config = OrderedConfiguration(H, basis, conf_data['size'], cid=cid)
-                config.map_to_supercell()
+                config = OrderedConfiguration(H, basis, cid=cid)
             else:
                 config = DisorderedConfiguration(basis, conf_data['size'], cid=cid)
 

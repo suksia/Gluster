@@ -92,7 +92,7 @@ if args.enumerate:
 
     logger.debug(f"Enumerated all sublattices. Found {num_sublattices} possibilities")
 
-    ordered_configs = dft_dataset.sample_ordered_configurations(sampler, enum['N_ordered'], enum['supercell_size'])
+    ordered_configs = dft_dataset.sample_ordered_configurations(sampler, enum['N_ordered'])
     disordered_configs = dft_dataset.sample_disordered_configurations(sampler, enum['N_disordered'], enum['supercell_size'])
 
     logger.debug(f"Sampled {len(ordered_configs) + len(disordered_configs)} total configurations")
