@@ -138,10 +138,8 @@ class Dataset:
 
         return configurations, configurations_list
 
-    def sample_ordered_configurations(self, sampler: Sampler, num: int):
-        """Sample ordered configurations with an exponential decay for composition distance and basis size."""
-        enum_configs, enum_configs_list = self.enumerate_configurations()
-        
+    def sample_ordered_configurations(self, sampler: Sampler, num: int, enum_configs_dict: dict, enum_configs_list: list):
+        """Sample ordered configurations with an exponential decay for composition distance and basis size."""      
         if len(enum_configs_list) <= num:
             logger.debug(f"WARNING: too many unique ordered configurations requested (found {len(enum_configs_list)}, but needed at least {num})")
             return enum_configs_list
@@ -170,7 +168,7 @@ class Dataset:
                 sampled_sublat = possible_sublats[sampler.sample_uni_distr(len(possible_sublats))]
 
             # sample a configuration
-            possible_configs = enum_configs[sampled_comp][sampled_l][sampled_sublat]
+            possible_configs: list[OrderedConfiguration] = enum_configs_dict[sampled_comp][sampled_l][sampled_sublat]
             if len(possible_configs) == 0:
                 continue
             elif len(possible_configs) == 1:
@@ -183,7 +181,7 @@ class Dataset:
             num_iters += 1
             if num_iters > 100000:
                 raise RuntimeError("Maximum iteration count reached. Something went wrong when sampling ordered configurations. Please investigate")
-            
+
         return list(ordered_configs)
 
     def sample_disordered_configurations(self, sampler: Sampler, num: int, supercell_size: int):
@@ -290,8 +288,8 @@ class Dataset:
 
             else:
                 lines.append(" "*2 + "ordered: False\n")
+                lines.append(" "*2 + f"size: {config.size}\n")
 
-            lines.append(" "*2 + f"size: {config.size}\n")
             lines.append(" "*2 + "basis:\n")
             pos_line = " "*4 + f"positions: ["
             sp_line = " "*4 + f"species: ["

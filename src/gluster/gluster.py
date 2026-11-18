@@ -92,7 +92,19 @@ if args.enumerate:
 
     logger.debug(f"Enumerated all sublattices. Found {num_sublattices} possibilities")
 
-    ordered_configs = dft_dataset.sample_ordered_configurations(sampler, enum['N_ordered'])
+    enum_configs_dict, enum_configs_list = dft_dataset.enumerate_configurations()
+
+    logger.debug(f"Enumerated all configurations. Found {enum_configs_list} possibilities")
+
+    all_configs_dataset = Dataset(end_members)
+    all_configs_dataset.add_configurations(enum_configs_list)
+
+    all_configs_dataset.sort_configurations()
+    all_configs_dataset.write_yaml(enum_dir / 'enumerated_configurations.yaml')
+
+    logger.debug(f"Wrote all enumerated configurations to {enum_dir / 'enumerated_configurations.yaml'}")
+
+    ordered_configs = dft_dataset.sample_ordered_configurations(sampler, enum['N_ordered'], enum_configs_dict, enum_configs_list)
     disordered_configs = dft_dataset.sample_disordered_configurations(sampler, enum['N_disordered'], enum['supercell_size'])
 
     logger.debug(f"Sampled {len(ordered_configs) + len(disordered_configs)} total configurations")
@@ -100,13 +112,14 @@ if args.enumerate:
     dft_dataset.add_configurations(ordered_configs)
     dft_dataset.add_configurations(disordered_configs)
 
+    dft_dataset.sort_configurations()
     dft_dataset.write_yaml(enum_dir / 'dft_dataset.yaml')
 
     logger.debug(f"Wrote sampled configurations to {enum_dir / 'dft_dataset.yaml'}")
 
     plot_mesh(enum_dir / 'enumerated_compositions.png', end_members, compositions=all_compositions)
-    plot_mesh(enum_dir / 'ordered_compositions.png', end_members, configurations=ordered_configs)
-    plot_mesh(enum_dir / 'disordered_compositions.png', end_members, configurations=disordered_configs)
+    plot_mesh(enum_dir / 'ordered_configurations.png', end_members, configurations=ordered_configs)
+    plot_mesh(enum_dir / 'disordered_configurations.png', end_members, configurations=disordered_configs)
 
     logger.debug("Plotted composition space and sampled configurations")
 

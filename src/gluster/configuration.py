@@ -231,6 +231,7 @@ class DisorderedConfiguration(Configuration):
     def __init__(self, basis: dict[tuple[float], str], size: int, cid: int = None):
         super().__init__(np.eye(3), basis, cid=cid)
 
+        self.size = size
         self.B = size*np.eye(3)
         self.ordered = False
         self.create_Atoms()
