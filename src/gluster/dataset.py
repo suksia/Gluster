@@ -60,18 +60,7 @@ class Dataset:
         self.configurations = configs 
     
     def enumerate_unaries(self):
-        unaries = []
-
-        for em in self.end_members:
-            unary = OrderedConfiguration(np.eye(3), {(0,0,0): em}, 1)
-            
-            # not mapping to supercell
-            unary.supercell = deepcopy(unary.basis)
-            unary.A_super = unary.A_prim.copy()
-
-            unaries.append(unary)
-
-        self.add_configurations(unaries)
+        return [OrderedConfiguration(np.eye(3), {(0,0,0): em}) for em in self.end_members]
 
     def enumerate_compositions(self, max_basis_size: int):
         """Iterates over basis sizes and compiles a list of allowed compositions."""
@@ -190,18 +179,18 @@ class Dataset:
         disordered_configs: list[DisorderedConfiguration] = []
 
         # define conventional supercell
-        A = np.eye(3)
-        conv_basis_pos = [np.array([0, 0, 0]), np.array([0.5, 0.5, 0.5])]
+        A_conv = np.eye(3)
+        f_conv_basis = [np.array([0, 0, 0]), np.array([0.5, 0.5, 0.5])]
         supercell_size = tuple([supercell_size]*3)
 
-        supercell_positions = replicate(A, conv_basis_pos, supercell_size)
+        supercell_positions = replicate(A_conv, f_conv_basis, supercell_size)
         num_conv_positions = len(supercell_positions)
 
         supercell_positions_reduced = []
-        for pos in supercell_positions:
-            pos = np.array(pos)
-            pos /= supercell_size
-            supercell_positions_reduced.append(tuple(pos.tolist()))
+        for r in supercell_positions:
+            r = np.array(r)
+            f /= supercell_size
+            supercell_positions_reduced.append(tuple(f.tolist()))
 
         supercell_positions = supercell_positions_reduced
 

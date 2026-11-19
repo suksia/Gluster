@@ -178,3 +178,10 @@ def write_mixing_energy(write_path: Path, elements: tuple[str], dataset: Dataset
             else:
                 f.write(f"pred \n")
             f.write('\n')
+
+def write_xyz(write_path: Path, mapping: dict[tuple[float], str]):
+    with open(write_path, 'w') as f:
+        f.write(f"{len(mapping)}\n\n")
+
+    for r, sp in mapping.items():
+        f.write(f"{sp:<2}  {r[0]:3<8f}  {r[1]:3<8f}  {r[2]:3<8f}\n")

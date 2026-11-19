@@ -7,7 +7,7 @@ from enumeration import BCC
 from sampling import Sampler
 from vasp_file import VaspIncar, VaspKpoints
 from dataset import Dataset
-from output import plot_mesh, plot_mixing_energy, write_mixing_energy
+from output import plot_mesh, plot_mixing_energy, write_mixing_energy, write_xyz
 from expansion import Expansion, scan_cutoffs
 
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG, format='[%(asctime)s] %(message)s', datefmt='%m/%d/%Y %H:%M:%S')
@@ -80,7 +80,8 @@ if args.enumerate:
     sampler = Sampler(seed)
     lattice = BCC(enum['L'])
 
-    dft_dataset.enumerate_unaries()
+    unaries = dft_dataset.enumerate_unaries()
+    dft_dataset.add_configurations(unaries)
     
     all_compositions = dft_dataset.enumerate_compositions(enum['L'])
     dft_dataset.compositions = all_compositions
@@ -156,55 +157,30 @@ if args.dft:
 
     vasp: dict = input_yml['vasp']
 
-    # organize vasp settings by rank
-    vasp_files_by_rank = {'global': None, 'unary': None, 'binary': None, 'ternary': None}
-    
-    def init_dft_files(user_input: dict):
-        vasp_file_dict = {'incar': None, 'kpoints': None, 'potcar': None}
+    ordered_incar = VaspIncar().load(from_string=vasp['incar'])
+    ordered_incar.update_setting("NCORE", vasp['ordered']['NCORE'])
+    ordered_incar.update_setting("KPAR", vasp['ordered']['KPAR'])
 
-        if 'incar' in user_input.keys():
-            vasp_file_dict['incar'] = VaspIncar().load(from_string=user_input['incar'])
+    disordered_incar = VaspIncar().load(from_string=vasp['incar'])
+    disordered_incar.update_setting("NCORE", vasp['disordered']['NCORE'])
+    disordered_incar.update_setting("KPAR", vasp['disordered']['KPAR'])
 
-        if 'kpoints' in user_input.keys():
-            vasp_file_dict['kpoints'] = VaspKpoints().load(from_string=user_input['kpoints'])
-
-        if 'potcar' in user_input.keys():
-            vasp_file_dict['potcar'] = user_input['potcar']
-    
-        return vasp_file_dict
-    
-    vasp_files_by_rank['global'] = init_dft_files(vasp)
-
-    for rank in ['unary', 'binary', 'ternary']:
-        if rank in vasp.keys():
-            vasp_files_by_rank[rank] = init_dft_files(vasp[rank])
-
-    ncores_by_rank = {}
-    for rank in ['unary', 'binary', 'ternary']:
-        if rank in vasp.keys():
-            ncores_by_rank[rank] = vasp[rank]['ncores']
-        
     for config in dft_dataset.configurations:
-        if config.rank == 1:
-            rank_name = 'unary'
-        elif config.rank == 2:
-            rank_name = 'binary'
-        elif config.rank == 3:
-            rank_name = 'ternary'
-    
-        # use rank-level settings first
-        vfs = vasp_files_by_rank[rank_name]
-        config.set_vasp_files(incar=vfs['incar'], kpoints=vfs['kpoints'], potcar_names=vfs['potcar'])
+        if config.ordered:
+            incar = ordered_incar
+            ncores = vasp['ordered']['ncores']
+        else:
+            incar = disordered_incar
+            ncores = vasp['disordered']['ncores']
 
-        # use global-level settings second
-        vfs = vasp_files_by_rank['global']
-        config.set_vasp_files(overwrite=False, incar=vfs['incar'], kpoints=vfs['kpoints'], potcar_names=vfs['potcar'])
-
-        config.cdir = dft_dir / str(config.cid)
-        config.cdir.mkdir(exist_ok=True)
+        config.set_vasp_files(incar=incar, potcar_names=vasp['potcar'])
+        config.set_dir(dft_dir / str(config.cid))
         config.write_vasp_files()
 
-        config.ncores = ncores_by_rank[rank_name]
+        if config.ordered:
+            write_xyz(dft_dir / str(config.cid) / 'supercell.xyz', config.supercell)
+
+        config.ncores = ncores
 
     dft_dataset.queue_jobs()
     dft_dataset.run_jobs(dft_dir / 'dft_dataset.yaml')

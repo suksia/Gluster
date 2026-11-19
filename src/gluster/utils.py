@@ -67,13 +67,13 @@ def composition_distance(comp1: tuple[float], comp2: tuple[float]):
     
     return distance**(1/2)
 
-def replicate(A: np.ndarray, unit_cell_positions: list[np.ndarray], size: tuple[int]):
-    """Replicate the unit cell of a lattice an integer number of times in each direction."""
+def replicate(A: np.ndarray, f_basis: list[np.ndarray], size: tuple[int]):
+    """Replicate the unit cell of a lattice an integer number of times in each direction. Returns Cartesian positions."""
     supercell_positions: list[tuple[float]] = []
 
-    for bp in unit_cell_positions:
+    for bp in f_basis:
         for tr_vector in list(np.ndindex(size)):
-            pos = bp + A @ tr_vector
+            pos = A @ (bp + tr_vector)
             pos = tuple(pos.tolist())
             supercell_positions.append(pos)
 

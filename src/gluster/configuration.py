@@ -6,7 +6,8 @@ from subprocess import Popen
 from math import floor
 
 from vasp_file import VaspIncar, VaspPoscar, VaspKpoints, VaspPotcar, VaspOutcar
-from utils import is_hnf, ELEMENTS
+from utils import is_hnf, replicate, ELEMENTS
+from output import write_xyz
 
 logger = logging.getLogger('Gluster')
 
@@ -32,7 +33,7 @@ class Configuration:
 
         Configuration.cids.append(self.cid)
         
-        self.ordered = None
+        self.ordered: bool = None
         self.basis = basis
         self.elements = list(set(self.basis.values()))
         self.rank = len(self.elements)
@@ -53,6 +54,7 @@ class Configuration:
         self.potcar: VaspPotcar = None
         self.outcar: VaspOutcar = None
 
+
         self.status = 0  # 0 = not run, 1 = running, 2 = finished
         self.process: Popen = None
         self.start_time: float = None
@@ -65,7 +67,11 @@ class Configuration:
         self.expansion_energy: float = None
 
         self.compute_composition()
-          
+
+    def set_dir(self, dir_path: Path):
+        self.cdir = dir_path
+        self.cdir.mkdir(exist_ok=True)
+
     def compute_composition(self):
         """Compute the atomic and fractional composition. Also compute the average lattice constant."""
         self.at_composition = {}
@@ -107,7 +113,8 @@ class Configuration:
             self.set_lattice_const(avg=True)
 
         lattice_vectors = []
-        for lv in self.B:
+        for i in range(3):
+            lv = self.B[:, i]
             lattice_vectors.append(lv.tolist())
 
         ions: dict[str, list[tuple[float]]] = {}
@@ -168,7 +175,7 @@ class Configuration:
 
         if self.potcar is not None:
             self.potcar.write(write_dir / 'POTCAR')
-
+    
     def get_energy(self):
         """Attempts to obtain energy for cluster expansion from energy.out file."""
         if self.cdir is None:
@@ -223,9 +230,34 @@ class OrderedConfiguration(Configuration):
 
         super().__init__(H, basis, cid=cid)
 
+        self.supercell = self.map_to_supercell()
         self.ordered = True
         self.create_Atoms()
-        
+
+    def map_to_supercell(self, size=10):
+        """Replicates the conventional supercell and maps the basis onto it."""
+        A_conv = self.a0*np.eye(3)
+        f_conv_basis = [np.array([0, 0, 0]), np.array([0.5, 0.5, 0.5])]
+        size = tuple([size]*3)
+
+        supercell_positions = replicate(A_conv, f_conv_basis, size)
+        supercell_map: dict[tuple[float], str] = {}
+
+        for r_super in supercell_positions:
+            f_enum_basis = np.round(self.B_inv @ r_super, 8) % 1.0
+
+            bp_found = False
+            for bp, sp in self.basis.items():
+                if np.allclose(f_enum_basis, bp):
+                    bp_found = bp
+                    break
+
+            if bp_found is False:
+                raise ValueError(f"[{self.cid}] Could not match supercell position r={r_super} with any basis point. Please investigate")
+            else:
+                supercell_map[r_super] = sp
+
+        return supercell_map
 
 class DisorderedConfiguration(Configuration):
     def __init__(self, basis: dict[tuple[float], str], size: int, cid: int = None):
