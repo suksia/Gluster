@@ -5,7 +5,7 @@ import numpy as np
 from utils import ELEMENTS
 from enumeration import BCC
 from sampling import Sampler
-from vasp_file import VaspIncar, VaspKpoints
+from vasp_file import VaspIncar
 from dataset import Dataset
 from output import plot_mesh, plot_mixing_energy, write_mixing_energy, write_xyz
 from expansion import Expansion, scan_cutoffs
@@ -95,7 +95,7 @@ if args.enumerate:
 
     enum_configs_dict, enum_configs_list = dft_dataset.enumerate_configurations()
 
-    logger.debug(f"Enumerated all configurations. Found {enum_configs_list} possibilities")
+    logger.debug(f"Enumerated all configurations. Found {len(enum_configs_list)} possibilities")
 
     all_configs_dataset = Dataset(end_members)
     all_configs_dataset.add_configurations(enum_configs_list)
@@ -158,8 +158,7 @@ if args.dft:
     vasp: dict = input_yml['vasp']
 
     ordered_incar = VaspIncar().load(from_string=vasp['incar'])
-    ordered_incar.update_setting("NCORE", vasp['ordered']['NCORE'])
-    ordered_incar.update_setting("KPAR", vasp['ordered']['KPAR'])
+    
 
     disordered_incar = VaspIncar().load(from_string=vasp['incar'])
     disordered_incar.update_setting("NCORE", vasp['disordered']['NCORE'])
@@ -167,20 +166,29 @@ if args.dft:
 
     for config in dft_dataset.configurations:
         if config.ordered:
-            incar = ordered_incar
-            ncores = vasp['ordered']['ncores']
+            setting_cls = 'ordered'
         else:
-            incar = disordered_incar
-            ncores = vasp['disordered']['ncores']
+            setting_cls = 'disordered'
 
-        config.set_vasp_files(incar=incar, potcar_names=vasp['potcar'])
+        config.create_poscar()
+        config.create_potcar(vasp['potcar'])
+
+        config.ncores = vasp[setting_cls]['ncores']
+
+        incar = VaspIncar().load(from_string=vasp['incar'])
+        incar.update_setting("NCORE", vasp[setting_cls]['NCORE'])
+        incar.update_setting("KPAR", vasp[setting_cls]['KPAR'])
+
+        if "NBANDS" in vasp[setting_cls].keys():
+            config.get_nbands(*vasp[setting_cls]['NBANDS'])
+            incar.update_setting("NBANDS", config.nbands)
+        
+        config.set_vasp_files(incar=incar)
         config.set_dir(dft_dir / str(config.cid))
         config.write_vasp_files()
 
         if config.ordered:
             write_xyz(dft_dir / str(config.cid) / 'supercell.xyz', config.supercell)
-
-        config.ncores = ncores
 
     dft_dataset.queue_jobs()
     dft_dataset.run_jobs(dft_dir / 'dft_dataset.yaml')

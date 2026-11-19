@@ -1,10 +1,9 @@
 import os, time, logging, yaml
 from pathlib import Path
 import numpy as np
-from copy import deepcopy
 
 from configuration import Configuration, OrderedConfiguration, DisorderedConfiguration
-from utils import composition_distance, replicate
+from utils import replicate
 from enumeration import Lattice, Sublattice
 from sampling import Sampler
 
@@ -188,8 +187,7 @@ class Dataset:
 
         supercell_positions_reduced = []
         for r in supercell_positions:
-            r = np.array(r)
-            f /= supercell_size
+            f = np.array(r) / supercell_size
             supercell_positions_reduced.append(tuple(f.tolist()))
 
         supercell_positions = supercell_positions_reduced

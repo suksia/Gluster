@@ -140,11 +140,16 @@ class VaspPoscar(VaspFile):
 class VaspPotcar(VaspFile):
     def __init__(self):
         super().__init__()
-        self.dirnames = None
+        self.dirnames: list[str] = None
+        self.elements: list[str] = None
+        self.zval: dict[str, float] = None
     
     def load(self, dirnames: list[str] = None):
         self.lines = []
+
         self.dirnames = dirnames
+        self.elements = [s.split()[0] for s in self.dirnames]
+
         for dirname in self.dirnames:
             potcar_path = POTCAR_DIR / dirname / 'POTCAR'
             if not potcar_path.exists():
@@ -152,6 +157,17 @@ class VaspPotcar(VaspFile):
 
             with open(potcar_path, 'r') as f:
                 self.lines += f.readlines()
+
+        zval_instances = []
+        
+        for line in self.lines:
+            if 'ZVAL' in line:
+                line_strings = strip_split(line)
+                zval_index = line_strings.index('ZVAL')
+                zval = line_strings[zval_index+2]
+                zval_instances.append(float(zval)) # ZVAL,=,value
+
+        self.zval = dict(zip(self.elements, zval_instances))
 
         return self
 

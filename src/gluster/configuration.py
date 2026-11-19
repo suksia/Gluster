@@ -3,11 +3,10 @@ import numpy as np
 from pathlib import Path
 from ase import Atoms
 from subprocess import Popen
-from math import floor
+from math import floor, ceil
 
 from vasp_file import VaspIncar, VaspPoscar, VaspKpoints, VaspPotcar, VaspOutcar
 from utils import is_hnf, replicate, ELEMENTS
-from output import write_xyz
 
 logger = logging.getLogger('Gluster')
 
@@ -54,6 +53,9 @@ class Configuration:
         self.potcar: VaspPotcar = None
         self.outcar: VaspOutcar = None
 
+        self.nion = len(self.basis)
+        self.nelect: int = None
+        self.nbands: int = None
 
         self.status = 0  # 0 = not run, 1 = running, 2 = finished
         self.process: Popen = None
@@ -67,6 +69,7 @@ class Configuration:
         self.expansion_energy: float = None
 
         self.compute_composition()
+        self.set_lattice_const()
 
     def set_dir(self, dir_path: Path):
         self.cdir = dir_path
@@ -131,31 +134,34 @@ class Configuration:
             "coord_system": "Direct",
             "ions": ions})
 
-    def set_vasp_files(self, overwrite = True, incar: VaspIncar = None, kpoints: VaspKpoints = None, potcar_names: list[str] = None):
-        if incar:
-            if self.incar is not None and overwrite is False:
-                pass
-            else:
-                self.incar = incar
-
-        if kpoints:
-            if self.kpoints is not None and overwrite is False:
-                pass
-            else:
-                self.kpoints = kpoints
-
+    def create_potcar(self, potcar_names: list[str] = None):
         if self.poscar is None:
-            self.create_poscar()
-        
-        if self.poscar and potcar_names:
+            raise RuntimeError("POSCAR must exist in order to create POTCAR so that the ion order is correct")
+
+        if potcar_names is None:
+            names_in_poscar = list(self.poscar.ions.keys())
+        else:
             names_in_poscar = []
             for sp in self.poscar.ions.keys():
                 for nm in potcar_names:
                     if sp in nm:
                         names_in_poscar.append(nm)
                         break
+        
+        self.potcar = VaspPotcar().load(names_in_poscar)
 
-            self.potcar = VaspPotcar().load(names_in_poscar)
+    def set_vasp_files(self, incar: VaspIncar = None, kpoints: VaspKpoints = None, poscar: VaspPoscar = None, potcar: VaspPotcar = None):
+        if incar:
+            self.incar = incar
+
+        if kpoints:
+            self.kpoints = kpoints
+
+        if poscar:
+            self.poscar = poscar
+
+        if potcar:
+            self.potcar = potcar
 
     def write_vasp_files(self, write_dir: Path = None):
         if write_dir is None:
@@ -190,6 +196,25 @@ class Configuration:
 
         return success
 
+    def get_nelect(self):
+        if self.potcar is None:
+            raise RuntimeError(f"Tried to compute number of electrons, but POTCAR does not exist")
+        
+        zval_mapping = self.potcar.zval
+
+        for sp, num in self.at_composition.items():
+            self.nelect += zval_mapping[sp]*num
+
+    def get_nbands(self, nion_scale_factor: float, nion_min: int):
+        """Follows same process as VASP for computing NBANDS, but user can change the number of bands per ion and its minimum."""
+        if self.nelect is None:
+            self.get_nelect()
+
+        # not sure how VASP implements nint() and int()
+        nbands_left = 0.5*round(self.nelect+2) + max(nion_scale_factor*self.nion, nion_min)
+        nbands_right = round(0.6*self.nelect)
+        self.nbands = ceil(max(nbands_left, nbands_right))       
+
     def create_Atoms(self):
         cell = []
         for lv in self.B:
@@ -213,7 +238,7 @@ class Configuration:
         if poll == 0:
             self.status = 2
             outcar = VaspOutcar().load(from_path = self.cdir / 'OUTCAR')
-            self.energy = outcar.get_energy() / len(self.supercell)
+            self.energy = outcar.get_energy() / self.nion
 
             with open(self.cdir / 'energy.out', 'w') as f:
                 f.write(f'{self.energy:4.10f}')
