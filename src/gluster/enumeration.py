@@ -262,7 +262,7 @@ class Lattice:
         self.A = None
         self.rotations = None
 
-    def enumerate_HNF(self, print_info = False):
+    def enumerate_HNF(self):
         """Construct all possible HNF matrices and de-duplicate them using the symmetry of the subclass."""
         non_unique_hnfs = {l: [] for l in range(1, self.L+1)}
         
@@ -326,9 +326,6 @@ class Lattice:
 
             hnf_count += len(hnf_list)
             unique_hnf_count += len(hnfs_equiv_classes[l])
-
-            if print_info:
-                print(f'l = {l}\t total HNFs = {len(hnf_list)} ({hnf_count})\t unique HNFs = {len(hnfs_equiv_classes[l])} ({unique_hnf_count})')
 
         # only save canonical (first) H in each equivalence class
         self.sublattices = {l: [] for l in range(1, self.L+1)}

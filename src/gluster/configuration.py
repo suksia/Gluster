@@ -44,7 +44,6 @@ class Configuration:
         self.H = H
         self.A_prim = 0.5*np.array([[1, -1, 1], [1, 1, -1], [-1, 1, 1]])
         self.B = self.A_prim @ self.H
-        self.B_inv = np.linalg.inv(self.B)
 
         self.cdir: Path = None
         self.incar: VaspIncar = None
@@ -255,11 +254,11 @@ class OrderedConfiguration(Configuration):
 
         super().__init__(H, basis, cid=cid)
 
-        self.supercell = self.map_to_supercell()
+        self.supercell = None
         self.ordered = True
         self.create_Atoms()
 
-    def map_to_supercell(self, size=10):
+    def map_to_supercell(self, size: int):
         """Replicates the conventional supercell and maps the basis onto it."""
         A_conv = self.a0*np.eye(3)
         f_conv_basis = [np.array([0, 0, 0]), np.array([0.5, 0.5, 0.5])]
@@ -269,7 +268,7 @@ class OrderedConfiguration(Configuration):
         supercell_map: dict[tuple[float], str] = {}
 
         for r_super in supercell_positions:
-            f_enum_basis = np.round(self.B_inv @ r_super, 8) % 1.0
+            f_enum_basis = np.round(np.linalg.inv(self.B) @ r_super, 8) % 1.0
 
             bp_found = False
             for bp, sp in self.basis.items():
@@ -289,7 +288,7 @@ class DisorderedConfiguration(Configuration):
         super().__init__(np.eye(3), basis, cid=cid)
 
         self.size = size
-        self.B = size*np.eye(3)
+        self.B = self.size*self.a0*np.eye(3)
         self.ordered = False
         self.create_Atoms()
 

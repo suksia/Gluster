@@ -106,7 +106,7 @@ if args.enumerate:
     logger.debug(f"Wrote all enumerated configurations to {enum_dir / 'enumerated_configurations.yaml'}")
 
     ordered_configs = dft_dataset.sample_ordered_configurations(sampler, enum['N_ordered'], enum_configs_dict, enum_configs_list)
-    disordered_configs = dft_dataset.sample_disordered_configurations(sampler, enum['N_disordered'], enum['supercell_size'])
+    disordered_configs = dft_dataset.sample_disordered_configurations(sampler, enum['N_disordered'], enum['disordered_size'])
 
     logger.debug(f"Sampled {len(ordered_configs) + len(disordered_configs)} total configurations")
 
@@ -157,13 +157,6 @@ if args.dft:
 
     vasp: dict = input_yml['vasp']
 
-    ordered_incar = VaspIncar().load(from_string=vasp['incar'])
-    
-
-    disordered_incar = VaspIncar().load(from_string=vasp['incar'])
-    disordered_incar.update_setting("NCORE", vasp['disordered']['NCORE'])
-    disordered_incar.update_setting("KPAR", vasp['disordered']['KPAR'])
-
     for config in dft_dataset.configurations:
         if config.ordered:
             setting_cls = 'ordered'
@@ -171,13 +164,19 @@ if args.dft:
             setting_cls = 'disordered'
 
         config.create_poscar()
-        config.create_potcar(vasp['potcar'])
+
+        if 'potcar_dir' in vasp['potcar'].keys():
+            potcar_dir = Path(vasp['potcar']['dirpath'])
+        else:
+            potcar_dir = Path('/storage/group/xvw5285/default/atomistic_pkgs/potpaw_PBE.54/')
+
+        config.create_potcar(potcar_dir, vasp['potcar']['names'])
 
         config.ncores = vasp[setting_cls]['ncores']
 
         incar = VaspIncar().load(from_string=vasp['incar'])
-        incar.update_setting("NCORE", vasp[setting_cls]['NCORE'])
         incar.update_setting("KPAR", vasp[setting_cls]['KPAR'])
+        incar.update_setting("NCORE", vasp[setting_cls]['NCORE'])
 
         if "NBANDS" in vasp[setting_cls].keys():
             config.get_nbands(*vasp[setting_cls]['NBANDS'])
@@ -188,6 +187,12 @@ if args.dft:
         config.write_vasp_files()
 
         if config.ordered:
+            if 'xyz_size' in vasp['ordered'].keys():
+                xyz_size = vasp['ordered']['xyz_size']
+            else:
+                xyz_size = 10
+
+            config.supercell = config.map_to_supercell(xyz_size)
             write_xyz(dft_dir / str(config.cid) / 'supercell.xyz', config.supercell)
 
     dft_dataset.queue_jobs()

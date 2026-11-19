@@ -4,8 +4,6 @@ from utils import strip_split
 
 logger = logging.getLogger('Gluster')
 
-POTCAR_DIR = Path('/storage/group/xvw5285/default/atomistic_pkgs/potpaw_PBE.54/')
-
 
 class VaspFile:
     def __init__(self):
@@ -144,14 +142,14 @@ class VaspPotcar(VaspFile):
         self.elements: list[str] = None
         self.zval: dict[str, float] = None
     
-    def load(self, dirnames: list[str] = None):
+    def load(self, dirpath: Path, dirnames: list[str] = None):
         self.lines = []
 
         self.dirnames = dirnames
         self.elements = [s.split()[0] for s in self.dirnames]
 
         for dirname in self.dirnames:
-            potcar_path = POTCAR_DIR / dirname / 'POTCAR'
+            potcar_path = dirpath / dirname / 'POTCAR'
             if not potcar_path.exists():
                 raise FileNotFoundError(f"[{self.name}] POTCAR file not found in {potcar_path.parent}")
 

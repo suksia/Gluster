@@ -347,16 +347,22 @@ class Dataset:
         # compute energy of end members
         self.end_member_energies = {}
 
-        for conf in self.configurations:
-            if conf.rank != 1:
-                continue
+        for em in self.end_members:
+            for conf in self.configurations:
+                if conf.rank != 1:
+                    continue
 
-            el = conf.elements[0]
-            
-            if conf.energy is None:
-                raise ValueError(f"Need energy for end-member {el} (config {conf.cid}) for calculating mixing energy, but VASP may not have run or finished")
+                em_energy = None
 
-            self.end_member_energies[el] = conf.energy
+                if em == conf.elements[0]:
+                    em_energy = conf.energy
+                else:
+                    continue
+
+            if em_energy is None:
+                raise ValueError(f"Need energy for end-member {em} for calculating mixing energy, but could not find an energy for it in the dataset")
+                
+            self.end_member_energies[em] = em_energy
 
         # compute mixing energies
         self.mixing_energies = {}

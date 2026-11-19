@@ -6,7 +6,7 @@ Note: _Gluster_ was specifically designed for the body-centered cubic W-Mo-V sys
 
 # Installation
 
-To install the repository, the following steps should be taken
+Follow these steps to install the repository.
 ```
 git clone https://github.com/suksia/Gluster.git
 conda create -n <env_name> python=3.14.6
@@ -16,18 +16,25 @@ conda install -c conda-forge icet=4.0
 pip install -r requirements.txt
 ```
 
-To set the location and type of POTCAR files to use, a POTCAR directory must be redefined at the top of `Gluster/src/gluster/vasp_file.py`
-```python
-POTCAR_DIR = Path('/path/to/potcar_dir/')
+# Input YAML File
+
+The input YAML file is created by the user and must always contain a heading with the following format.
+
+```yaml
+name: <string; name of project>
+dir: <string, path-like; path to place project>
+alloy: <list of strings; end-members defining the alloy system and rank>
 ```
+
+For each step below (enumeration, DFT, training, analysis), a different section containing settings and parameters must be provided. Multiple sections can be included in the same input file, but only one will be used at a time. It is recommended to use a single input file as this an entire workflow can be reproduced exactly.
 
 # Step 1: Preparing a Training Dataset
 
 Two types of configurations, ordered and disordered, can be used to train a cluster expansion. The training dataset should contain all cluster types that may appear during inference which would include ground state (0K) configurations and partially or fully disordered configurations at finite temperature. 
 
-Ordered configurations can be defined minimally by a transformation matrix in Hermite normal form (HNF) and a decoration mapping basis point positions to chemical elements. These positions are not defined using a real coordinate system and are instead in the _SNF coordinate system_ which are converted internally to fractional supercell coordinates. Disordered configurations only require a decoration mapping fractional positions to chemical elements.
+Ordered configurations can be defined minimally by a transformation matrix in Hermite normal form (HNF), which transforms the bcc primitive lattice vectors into some non-primitive basis, and a decoration mapping basis point positions to chemical elements. These positions must be fractional coordinates and are specific to the choice of the transformation matrix. Disordered configurations are a special case where the new basis is a supercell of the bcc conventional lattice vectors with random decorations.
 
-While a list of configurations could be prepared by hand, _Gluster_ has the ability to enumerate all possible ordered configurations given a maximum basis size, randomly sample a specified amount, and write the necessary information to an output YAML file. Specifically, it applies the following set of sampling steps for each configuration.
+While a list of configurations could be prepared by hand, _Gluster_ has the ability to enumerate all possible ordered configurations given a maximum basis size, randomly sample a specified number of configurations, and write the necessary information to an output YAML file. Specifically, it applies the following set of sampling steps for each configuration.
 
 1. Sample a composition
 2. Sample a generating basis size
@@ -35,43 +42,42 @@ While a list of configurations could be prepared by hand, _Gluster_ has the abil
 3. Sample an HNF matrix
 4. Sample a decoration
 
-Disordered configurations all share the same basis, so their sampling only includes step 4. Note, the Hart-Forcade algorithm is used to remove any configurations that are equivalent by symmetry so that the resulting set of configurations are guaranteed to be energetically distinct. A review of the theoretical details is provided in the section [Theory of Supercell Enumeration](#theory-of-supercell-enumeration).
+Disordered configurations all share the same basis, so their sampling just includes steps 1 and 4. Note, the Hart-Forcade algorithm is used to remove any configurations that are equivalent by symmetry so that the resulting set of configurations are guaranteed to be energetically distinct. A review of the theoretical details is provided in the section [Theory of Supercell Enumeration](#theory-of-supercell-enumeration).
 
-The enumeration settings are provided via an input YAML file with the following format.
+The enumeration settings are provided via the input YAML file section titled `enumarate` with the following format.
 
 ```yaml
-name: <string; name of project>
-dir: <string, path-like; path to place project>
-alloy: <list of strings; end-members defining the alloy system and rank>
-
 enumerate:
   seed: <integer; seed for initializing RNG>
   L: <integer; maximum basis size>
   N_ordered: <integer; number of ordered configurations to sample> 
   N_disordered: <integer; number of disordered configurations to sample> 
-  supercell_size: <integer; number of conventional unit cell replications in each direction> 
+  disordered_size: <integer; number of conventional unit cell replications in each direction for disordered configurations> 
 ```
 
 To run the enumeration, set the appropariate flag when running `gluster.py`.
+
 ```bash
 python src/gluster/gluster.py <input_yaml_path> -E
 ```
 
-A subdirectory `project-dir/enumeration` will be created which will contain `dft_dataset.yaml` with the following format. The dataset file is a list of configurations, each with a different configuration ID. This file can be modified manually to add or remove configurations, add energies, etc. 
+A subdirectory `project-dir/enumeration` will be created containing the dataset files `enumerated_configurations.yaml` and `dft_dataset.yaml` with the following format. 
 
 ```yaml
 <ID>:
   ordered: <bool; True if ordered, False if disordered>
   H: <list of lists of ints; rows of the HNF matrix, not required if disordered>
-  size: <integer; number of conventional unit cell replications in each direction> 
+  size: <integer; number of conventional unit cell replications in each direction, not required if ordered> 
   basis:
-    positions: <list of lists of floats; basis positions; SNF coordinates if ordered; fractional coordinates if disordered> 
+    positions: <list of lists of floats; basis positions in fractional coordinates> 
     species: <list of strings; elements associated with each basis position>
   energy: <float; energy per atom as computed by DFT (if available)>
 ...
 ```
 
-This subdirectory also contains plots of the composition space `project_dir/enumeration/enumerated_compositions.png` and the sampled configurations on it `project_dir/enumeration/(dis)ordered_configurations.png`. A colorbar indicating multiplicity is included for all plots which refers to the number of basis sizes $l$ that produce the same composition for the former, and the number of configurations with the same compositions in the latter.
+The dataset file is a list of configurations, each with a different configuration ID. This file can be modified manually to add or remove configurations, add energies, etc. 
+
+The subdirectory also contains plots of the composition space `project_dir/enumeration/enumerated_compositions.png` and the sampled configurations on it `project_dir/enumeration/(dis)ordered_configurations.png`. A colorbar indicating multiplicity is included for all plots which refers to the number of basis sizes $l$ that produce the same composition for the former, and the number of sampled configurations with the same composition in the latter.
 
 Multiple datasets can be merged by creating an input YAML file with the following format,
 
@@ -87,15 +93,60 @@ datasets:
 ```
 
 and running `mergy.py`.
+
 ```bash
 python src/gluster/merge.py <input_yaml_path>
 ```
 
-The same configuration could appear in multiple datasets, and ideally it should have the same or very similar energy in each case. If a duplicate is found, the first instance with a defined energy is used.
+The same configuration could appear in multiple datasets, and ideally it should have the same or very similar energy in each case. If a duplicate is found, the first instance with a defined energy is used. Some configurations may also be re-indexed if its index already exists at that point in the merging process.
 
-# Stage 2: Running VASP
+# Step 2: Running VASP
 
+Once a dataset YAML file has been created, DFT can be run on each of its configurations to obtain an energy for fitting cluster expansions. VASP settings are provided via the input YAML file section titled `vasp` with the following format.
 
+```yaml
+vasp:
+  dataset: <string, path-like; full path to the YAML file containing configurations; default=project_dir/enumeration/dft_dataset.yaml>
+  vasp:
+  incar: |
+    <INCAR lines>
+  potcar: 
+    dirpath: <string, path-like; full path to the directory containing input POTCARs in subdirectories>
+    names: <list of strings; each end-member's POTCAR subdirectory name (e.g., [W_pv, Mo_sv])>
+  ordered:
+    ncores: <int; number of MPI ranks to launch a single VASP instance with for ordered configurations>
+    KPAR: <int; KPAR setting for ordered configurations>
+    NCORE: <int; NCORE setting for ordered configurations>
+    NBANDS: <list[float, int]; bands per ion and minimum number of additional bands for ordered configurations; see explanation below>
+    xyz_size: <int; number of conventional unit cell replications in each direction for visualizing an ordered configuration; see explanation below>
+  disordered:
+    ncores: <int; number of MPI ranks to launch a single VASP instance with for disordered configurations>
+    KPAR: <int; KPAR setting for disordered configurations>
+    NCORE: <int; NCORE setting for disordered configurations>
+    NBANDS: <list[float, int]; bands per ion and minimum number of additional bands for disordered configurations; see explanation below>
+```
+
+Since the cell shape changes dramatically between enumerated configurations, the KPOINTS file is left to be generated automatically by VASP using the KSPACING and KGAMMA tags in the INCAR.
+
+Disordered cells should be much larger than ordered ones, so it is beneficial to allocate more MPI ranks for these calculations. For this reason, VASP parallelization via the KPAR and NCORE tags can be set differently for ordered and disordered configurations. If these tags are not included in the YAML file, the default values are used (KPAR=1, NCORE=1).
+
+It has been found that VASP does not give enough bands for certain ordered configurations when default settings are used. Specifically, NBANDS (computed internally by VASP) can lead to some configurations having no unoccupied bands, hindering accuracy and convergence. By default, VASP first allocates enough bands such that every one would be fully occupied, plus an extra. Then it adds some bands depending on the number of ions. The default settings are to add 1/2 bands per ion, with a minumum of 3 bands always added. These settings can be updated by the NBANDS key in the input YAML file. Please note, that some of the rounding operations may be different than VASP's internal functions. Also note that NBANDS is internally increased to be compatible with the choice of KPAR and NCORE. 
+
+_Gluster_ launches all VASP job steps in parallel using a pool of tasks allocated by Slurm in the subdirectory `project_dir/dft`. As calculations finish, the energy per atom is written to a file `project_dir/dft/<cid>/energy.out` and is added to a copy of the input dataset YAML file in the DFT subdirectory. If a configuration (matched only by ID) subdirectory already contains `energy.out`, VASP is skipped for this configuration and that energy from this file is used. This allows VASP to be restarted if the job ends prematurely, or if new configurations without computed energies have been added to an existing dataset YAML file.
+
+To ensure a correct and consistent set of energies are being used for cluster expansion fitting, always make sure to re-run vasp if any DFT settings have changed. This requires removing the energies from a dataset YAML file.
+
+Ordered configurations do not use the conventional bcc representation in their POSCAR files, so to visualize the actual ordering in a bulk structure, the conventional unit cell is replicated and the ordered basis is mapped onto it. To set the number of replications in each direction, change the `xyz_size` parameter. 
+
+Finally, to run VASP, set the appropariate flag when running `gluster.py`.
+
+```bash
+python src/gluster/gluster.py <input_yaml_path> -D
+```
+
+After every configuration's energy has been calculated, all mixing energies are computed and written to `project_dir/dft_mixing_energies.out` and plotted in `project_dir/dft_mixing_energies.png`.
+
+# Step 3: Training a Cluster Expansion
 
 
 # Theory of Supercell Enumeration
@@ -114,11 +165,12 @@ Keeping in this convention, the primitive lattice vectors must be written as col
 
 $$\mathbf{A} = \begin{pmatrix} | & | & | \\ \mathbf{a}_1 & \mathbf{a}_2 & \mathbf{a}_3 \\ | & | & | \end{pmatrix} = \frac{a_0}{2}\begin{pmatrix} 1 & -1 & 1 \\ 1 & 1 & -1 \\ -1 & 1 & 1 \end{pmatrix}.$$
 
-The number of basis points (or atoms in metals) is given by $l=\det\mathbf{H}$. The basis size implicitly determines which compositions can be realized. For example, a 3-atom basis in a binary alloy system could only produce $AB_2$, $A_2B$ alloys, and for a ternary only the equiatomic $ABC$ could be produced. As the basis size increases more compositions can be obtained, though due to the limited size of DFT supercells, the periodicity becomes increasingly reduced. For example, a 100-atom basis could produce compositions with a concentration of a single component as low as 1 at.%, but a $4\times4\times4$ conventional bcc supercell only contains 128 atoms, and thus the system would effectively have no periodicity and be fully disordered.
+The number of basis points (or atoms in metals) is given by $l=\det\mathbf{H}$. The basis size implicitly determines which compositions can be realized. For example, a 3-atom basis in a binary alloy system could only produce $AB_2$, $A_2B$ alloys, and for a ternary only the equiatomic $ABC$ could be produced. 
 
-Given the rotational symmetry of the parent lattice, some HNF matrices may be equivalent and would therefore produce configurations with the same DFT energies. For example,
+As the basis size increases, more compositions can be realized and dilute regions of the composition space can be represented. For example, an alloy with a dilute component at 1 at.% concentration would require at least a 100-atom basis, and the number of possible decorations would be $\alpha k^{100}$, where $\alpha$ is the fraction of decorations that are distinct given the lattice symmetry and $k$ is the alloy rank (number of components). 
+
+At the local scale, a large basis starts to approximate a random alloy which can be generalized to say that a truly disordered lattice is realized in the limit $l\to\infty$. Supercell methods provide an approximation to this by saying that a sufficiently large basis is enough to capture the energetics of disordered alloys. _Gluster_ implements disordered configurations as decorations of the same large basis defined as a supercell of the conventional lattice vectors. 
+
+Enumerating all possible configurations produces many that are equivalent within some symmetry operation, and thus would yield the same DFT energies. For example, all configurations in any sublattice defined by these transformation matrices
 $$\mathbf{H} = \begin{pmatrix} 1 &  &  \\ 1 & 2 &   \\ 0 & 0 & 1 \end{pmatrix} \cong \begin{pmatrix} 1 &  &  \\ 1 & 1 &   \\ 0 & 1 & 2 \end{pmatrix} \cong \begin{pmatrix} 1 &  &  \\ 0 & 1 &   \\ 0 & 0 & 2 \end{pmatrix},$$
-
-up to the cubic point group symmetry. The first step in de-duplicating configurations is to remove any $\mathbf{H}$ that are rotationally equivalent. Next, the basis positions can be found by reducing $\mathbf{H}$ to its Smith normal form (SNF) $\mathbf{D} = \mathbf{P}\mathbf{H}\mathbf{Q}$, where $\mathbf{D}$ is a diagonal matrix with each diagonal element $d_{i+1}$ being divisible by the previous diagonal element $d_{i}$ and $\mathbf{P}, \mathbf{Q}$ are unimodular matrices. The diagonal elements are indices 
-
- which can be converted to fractional coordinates via $$\mathbf{f} = \mathbf{H}^{-1} \mathbf{U}^{-1}\mathbf{s}\,\,\text{mod}\,1,$$
+are equivalent up to the rotational symmetry of a cubic lattice. As described in the Hart-Forcade algorithm, configurations can be de-duplicated by first removing any $\mathbf{H}$ that are rotationally symmetric given the point group, then for each remaining sublattice, remove any decorations that are translationally and rotationally symmetric, or super-periodic.
