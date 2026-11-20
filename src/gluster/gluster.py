@@ -61,6 +61,10 @@ if 'alloy' not in input_yml.keys():
 end_members: list[str] = input_yml['alloy']
 dft_dataset = Dataset(end_members)
 
+end_members_a0 = 0.0
+for em in end_members:
+    end_members_a0 += ELEMENTS[em]['a0'] / len(end_members)
+
 if args.enumerate:
     logger.debug(f'Enumeration flag set')
 
@@ -197,12 +201,12 @@ if args.dft:
     dft_dataset.queue_jobs()
     dft_dataset.run_jobs(dft_dir / 'dft_dataset.yaml')
 
-dft_dataset.compute_mixing_energies()
+    dft_dataset.compute_mixing_energies()
 
-plot_mixing_energy(TOP_DIR / 'dft_mixing_energies.png', end_members, dft_dataset)
-write_mixing_energy(TOP_DIR / 'dft_mixing_energies.out', end_members, dft_dataset)
+    plot_mixing_energy(TOP_DIR / 'dft_mixing_energies.png', end_members, dft_dataset)
+    write_mixing_energy(TOP_DIR / 'dft_mixing_energies.out', end_members, dft_dataset)
 
-logger.debug(f'Computed, wrote, and plotting mixing energies')
+    logger.debug(f'Computed, wrote, and plotting mixing energies')
 
 
 ######################## fit CE #######################
@@ -237,13 +241,6 @@ if args.train:
     else:
         cutoffs = expan['cutoffs']
 
-    if 'a0' not in expan.keys():
-        a0 = 0
-        for em in dft_dataset.end_members:
-            a0 += ELEMENTS[em]['a0'] / len(dft_dataset.end_members)
-    else:
-        a0 = expan['a0']
-
     num_tot_configs = len(dft_dataset.configurations)
     dft_dataset.remove_configurations_w_no_energy()
     num_configs_no_energy = num_tot_configs - len(dft_dataset.configurations)
@@ -253,23 +250,30 @@ if args.train:
 
     dft_dataset.compute_mixing_energies()
 
-    expansion = Expansion(dft_dataset, cutoffs, a0)
+    expansion = Expansion(dataset=dft_dataset, cutoffs=cutoffs, a0=end_members_a0)
 
     if 'scan' in expan.keys():
-        scan: dict = expan['scan']
-        cutoff_vals = np.linspace(*scan['range'])
+        cutoff_vals = np.linspace(*expan['scan']).tolist()
+        scan_order = len(cutoffs)+2
 
-        scan_cutoffs(scan['order'], cutoff_vals.tolist(), expansion, expan_dir)
+        scan_cutoffs(scan_order, cutoff_vals, expansion, expan_dir)
+
+        logger.debug(f"Scanned cluster diameter cutoffs for order {scan_order}")
 
     if len(cutoffs):
         expansion.init_cluster_space()
         expansion.init_structure_container()
         expansion.fit()
         expansion.write(expan_dir)
+
+        logger.debug(f"Fit cluster expansion with cutoffs {cutoffs}")
+
         expansion.predict_mixing_energies(dft_dataset)
 
         plot_mixing_energy(TOP_DIR / 'CE_mixing_energies.png', end_members, dft_dataset)
         write_mixing_energy(TOP_DIR / 'CE_mixing_energies.out', end_members, dft_dataset)
+
+        logger.debug("Predicted mixing energies using cluster expansion")
 
 
 ####################### analysis ######################
@@ -277,7 +281,7 @@ if args.train:
 if args.hull:
     logger.debug('Convex hull flag set')
 
-    hull_dir = TOP_DIR / 'hull_dir'
+    hull_dir = TOP_DIR / 'hull'
     hull_dir.mkdir(exist_ok=True)
 
     if 'hull' not in input_yml.keys():
@@ -317,11 +321,17 @@ if args.hull:
         ce_path = Path(hull['expansion'])
     
     if not ce_path.exists():
-        raise ValueError(f"[{ce_path}] File not found")  
+        raise ValueError(f"[{ce_path}] File not found")
     
-    expansion = Expansion(hull_dataset)
+    expansion = Expansion(a0=end_members_a0)
+    expansion.rescale_Atoms(hull_dataset)
     expansion.read_expansion(ce_path)
+
+    logger.debug(f"Loaded cluster expansion from {ce_path}")
+
     expansion.predict_mixing_energies(hull_dataset)
 
     plot_mixing_energy(hull_dir / 'convex_hull.png', end_members, hull_dataset)
     write_mixing_energy(hull_dir / 'convex_hull.out', end_members, hull_dataset)
+
+    logger.debug(f"Predicted mixing energies using cluster expansion")

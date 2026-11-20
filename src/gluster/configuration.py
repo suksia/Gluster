@@ -217,7 +217,8 @@ class Configuration:
 
     def create_Atoms(self):
         cell = []
-        for lv in self.B:
+        for i in range(3):
+            lv = self.B[:, i]
             cell.append(lv.tolist())
 
         self.Atoms = Atoms(symbols=list(self.basis.values()), scaled_positions=list(self.basis.keys()), cell=cell, pbc=True)
