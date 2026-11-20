@@ -324,12 +324,12 @@ if args.hull:
         raise ValueError(f"[{ce_path}] File not found")
     
     expansion = Expansion(a0=end_members_a0)
-    expansion.rescale_Atoms(hull_dataset)
+    hull_dataset.rescale_Atoms(end_members_a0)
     expansion.read_expansion(ce_path)
 
     logger.debug(f"Loaded cluster expansion from {ce_path}")
 
-    expansion.predict_mixing_energies(hull_dataset)
+    hull_dataset.predict_mixing_energies(expansion.cluster_expansion)
 
     plot_mixing_energy(hull_dir / 'convex_hull.png', end_members, hull_dataset)
     write_mixing_energy(hull_dir / 'convex_hull.out', end_members, hull_dataset)

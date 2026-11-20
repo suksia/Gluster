@@ -6,6 +6,7 @@ from configuration import Configuration, OrderedConfiguration, DisorderedConfigu
 from utils import replicate
 from enumeration import Lattice, Sublattice
 from sampling import Sampler
+from icet import ClusterExpansion
 
 try:
     NTASKS = int(os.environ['SLURM_NTASKS'])
@@ -31,7 +32,6 @@ class Dataset:
         self.num_available_cores = NTASKS
         
         self.end_member_energies: dict[str, float] = None
-        self.mixing_energies: dict[Configuration, float] = None
 
     def add_configurations(self, configs: list[Configuration]):
         if self.configurations is None:
@@ -365,8 +365,6 @@ class Dataset:
             self.end_member_energies[em] = em_energy
 
         # compute mixing energies
-        self.mixing_energies = {}
-        
         for conf in self.configurations:
             if conf.energy is None:
                 continue
@@ -375,4 +373,19 @@ class Dataset:
             for sp, conc in conf.composition.items():
                 conf.mixing_energy -= conc*self.end_member_energies[sp]
 
-            self.mixing_energies[conf] = conf.mixing_energy
+    def rescale_Atoms(self, a0: float):
+        target_vol = a0**3 / 2
+        
+        for conf in self.configurations:
+            conf_vol = conf.Atoms.get_volume() / len(conf.Atoms)
+
+            if conf_vol != target_vol:
+                vol_scale_factor = (target_vol / conf_vol)**(1/3)
+                conf.Atoms.set_cell(conf.Atoms.cell*vol_scale_factor, scale_atoms=True)
+
+    def predict_mixing_energies(self, expansion: ClusterExpansion):
+        if expansion is None:
+            raise RuntimeError("Cluster expansion does not exist")
+
+        for conf in self.configurations:
+            conf.expansion_energy = expansion.predict(conf.Atoms)

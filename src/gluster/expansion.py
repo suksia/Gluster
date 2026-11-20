@@ -40,7 +40,7 @@ class Expansion:
             raise RuntimeError(f"Tried to initialize structure container, but cluster space does not exist")
         self.structure_container = StructureContainer(cluster_space=self.cluster_space)
 
-        self.rescale_Atoms(self.dataset)
+        self.dataset.rescale_Atoms(self.a0)
 
         for conf in self.dataset.configurations:
             self.structure_container.add_structure(
@@ -84,26 +84,6 @@ class Expansion:
 
     def read_expansion(self, read_path: Path):
         self.cluster_expansion = ClusterExpansion.read(read_path)
-
-    def predict_mixing_energies(self, dataset: Dataset):
-        if self.cluster_expansion is None:
-            raise RuntimeError("Cluster expansion does not exist")
-
-        for conf in dataset.configurations:
-            conf.expansion_energy = self.cluster_expansion.predict(conf.Atoms)
-
-    def rescale_Atoms(self, dataset: Dataset):
-        if self.a0 is None:
-            raise RuntimeError("No lattice constant is defined")
-        
-        target_vol = self.a0**3 / 2
-        
-        for conf in dataset.configurations:
-            conf_vol = conf.Atoms.get_volume() / len(conf.Atoms)
-
-            if conf_vol != target_vol:
-                vol_scale_factor = (target_vol / conf_vol)**(1/3)
-                conf.Atoms.set_cell(conf.Atoms.cell*vol_scale_factor, scale_atoms=True)
 
 
 def scan_cutoffs(order: int, cutoff_values: list[float], expansion: Expansion, write_dir: Path):

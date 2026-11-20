@@ -113,7 +113,7 @@ def plot_binary_mixing_energy(write_path: Path, elements: tuple[str], dataset: D
     all_str = alloy_string(elements)
 
     x, y, y_pred = [], [], []
-    for conf, me in dataset.mixing_energies.items():
+    for conf in dataset.configurations:
         skip = False
 
         if conf.rank > 2:
@@ -128,14 +128,17 @@ def plot_binary_mixing_energy(write_path: Path, elements: tuple[str], dataset: D
             continue
         
         x.append(conf.composition[x_element])
-        y.append(me*1000)
+
+        if conf.mixing_energy:
+            y.append(conf.mixing_energy*1000)
 
         if conf.expansion_energy:
             y_pred.append(conf.expansion_energy*1000)
 
     fig, ax = plt.subplots()
 
-    ax.scatter(x, y, label='DFT')
+    if len(y):
+        ax.scatter(x, y, label='DFT')
     if len(y_pred):
         ax.scatter(x, y_pred, marker='x', label='CE')
     ax.set_xlabel(f"x({x_element})")
@@ -158,11 +161,16 @@ def plot_mixing_energy(write_path: Path, elements: tuple[str], dataset: Dataset)
 
 def write_mixing_energy(write_path: Path, elements: tuple[str], dataset: Dataset):
     with open(write_path, 'w') as f:
-        f.write("End Member Energies [eV]\n\n")
-        for end_mem, engy in dataset.end_member_energies.items():
-            f.write(f"{end_mem} = {engy:2.5f}\n")
+        if dataset.end_member_energies is not None:
+            f.write("End Member Energies [eV]\n\n")
 
-        f.write('\nMixing Energies [eV]\n\n')
+            for end_mem, engy in dataset.end_member_energies.items():
+                f.write(f"{end_mem} = {engy:2.5f}\n")
+
+            f.write('\n')
+
+        f.write('Mixing Energies [eV]\n\n')
+
         for conf, engy in dataset.mixing_energies.items():
             f.write(f"{conf.cid}\n")
 
@@ -171,8 +179,16 @@ def write_mixing_energy(write_path: Path, elements: tuple[str], dataset: Dataset
                 comp_line += f"{el}={conc:1.3f}  "
             f.write(comp_line[:-2] + '\n')
 
-            f.write(f"E/N  {conf.energy:2.8f}\n")
-            f.write(f"emix  {engy:1.6f}\n")
+            if conf.energy:
+                f.write(f"E/N  {conf.energy:2.8f}\n")
+            else:
+                f.write(f"E/N \n") 
+                
+            if conf.mixing_energy:
+                f.write(f"emix  {conf.mixing_energy:2.8f}\n")
+            else:
+                f.write(f"emix \n") 
+
             if conf.expansion_energy:
                 f.write(f"pred {conf.expansion_energy:1.6f}\n")
             else:
