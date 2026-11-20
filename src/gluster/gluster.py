@@ -21,7 +21,7 @@ parser.add_argument('input', type=str, help='Path to input file')
 parser.add_argument('--enumerate', '-E', action=argparse.BooleanOptionalAction)
 parser.add_argument('--dft', '-D', action=argparse.BooleanOptionalAction)
 parser.add_argument('--train', '-T', action=argparse.BooleanOptionalAction)
-parser.add_argument('--analysis', '-A', action=argparse.BooleanOptionalAction)
+parser.add_argument('--hull', '-H', action=argparse.BooleanOptionalAction)
 args = parser.parse_args()
 
 input_fp = Path(args.input).resolve()
@@ -62,7 +62,7 @@ end_members: list[str] = input_yml['alloy']
 dft_dataset = Dataset(end_members)
 
 if args.enumerate:
-    logger.debug(f'Enumeration flag set. Generating configurations for a new input file')
+    logger.debug(f'Enumeration flag set')
 
     enum_dir = TOP_DIR / 'enumeration'
     enum_dir.mkdir(exist_ok=True)
@@ -92,6 +92,8 @@ if args.enumerate:
     num_sublattices = sum([len(sublat_list) for sublat_list in dft_dataset.sublattices.values()])
 
     logger.debug(f"Enumerated all sublattices. Found {num_sublattices} possibilities")
+
+    logger.debug(f"Enumerating all configurations. This may take a while...") 
 
     enum_configs_dict, enum_configs_list = dft_dataset.enumerate_configurations()
 
@@ -127,28 +129,11 @@ if args.enumerate:
     exit()  
 
 
-#################### configurations ###################
-
-if 'dataset' not in input_yml.keys():
-    dataset_path = TOP_DIR / 'enumeration' / 'dft_dataset.yaml'
-else:
-    dataset_path = Path(input_yml['dataset'])
-
-if not dataset_path.exists():
-    raise ValueError(f"[{dataset_path}] File not found")
-
-loaded_configs = dft_dataset.read_yaml(dataset_path)
-dft_dataset.add_configurations(loaded_configs)
-dft_dataset.sort_configurations()
-
-logger.debug(f"Loaded {len(loaded_configs)} configurations from {dataset_path}")
-
-
 ####################### run VASP ######################
 
 if args.dft:
-    logger.debug('DFT flag set. Running VASP on loaded configurations')
-    
+    logger.debug('DFT flag set')
+
     dft_dir = TOP_DIR / 'dft'
     dft_dir.mkdir(exist_ok=True)
 
@@ -156,6 +141,20 @@ if args.dft:
         raise KeyError(f"VASP section missing in input file")
 
     vasp: dict = input_yml['vasp']
+
+    if 'dataset' not in vasp.keys():
+        dataset_path = TOP_DIR / 'enumeration' / 'dft_dataset.yaml'
+    else:
+        dataset_path = Path(vasp['dataset'])
+
+    if not dataset_path.exists():
+        raise ValueError(f"[{dataset_path}] File not found")
+
+    loaded_configs = dft_dataset.read_yaml(dataset_path)
+    dft_dataset.add_configurations(loaded_configs)
+    dft_dataset.sort_configurations()
+
+    logger.debug(f"Loaded {len(loaded_configs)} configurations from {dataset_path}")
 
     for config in dft_dataset.configurations:
         if config.ordered:
@@ -209,12 +208,29 @@ logger.debug(f'Computed, wrote, and plotting mixing energies')
 ######################## fit CE #######################
 
 if args.train:
-    logger.debug('Cluster expansion flag set. Fitting to DFT data')
+    logger.debug('Cluster expansion flag set')
     
     expan_dir = TOP_DIR / 'expansion'
     expan_dir.mkdir(exist_ok=True)
 
+    if 'expansion' not in input_yml.keys():
+        raise KeyError(f"Expansion section missing in input file")
+
     expan: dict = input_yml['expansion']
+
+    if 'dataset' not in expan.keys():
+        dataset_path = TOP_DIR / 'dft' / 'dft_dataset.yaml'
+    else:
+        dataset_path = Path(expan['dataset'])
+    
+    if not dataset_path.exists():
+        raise ValueError(f"[{dataset_path}] File not found")
+    
+    loaded_configs = dft_dataset.read_yaml(dataset_path)
+    dft_dataset.add_configurations(loaded_configs)
+    dft_dataset.sort_configurations()
+
+    logger.debug(f"Loaded {len(loaded_configs)} configurations from {dataset_path}")
 
     if 'cutoffs' not in expan.keys():
         cutoffs = []
@@ -228,7 +244,15 @@ if args.train:
     else:
         a0 = expan['a0']
 
+    num_tot_configs = len(dft_dataset.configurations)
     dft_dataset.remove_configurations_w_no_energy()
+    num_configs_no_energy = num_tot_configs - len(dft_dataset.configurations)
+
+    if num_configs_no_energy:
+        logger.debug(f"Removed {num_configs_no_energy} configurations from loaded DFT dataset due to missing energy")
+
+    dft_dataset.compute_mixing_energies()
+
     expansion = Expansion(dft_dataset, cutoffs, a0)
 
     if 'scan' in expan.keys():
@@ -242,9 +266,7 @@ if args.train:
         expansion.init_structure_container()
         expansion.fit()
         expansion.write(expan_dir)
-
-        for conf in expansion.dataset.configurations:
-            conf.expansion_energy = expansion.cluster_expansion.predict(conf.Atoms)
+        expansion.predict_mixing_energies(dft_dataset)
 
         plot_mixing_energy(TOP_DIR / 'CE_mixing_energies.png', end_members, dft_dataset)
         write_mixing_energy(TOP_DIR / 'CE_mixing_energies.out', end_members, dft_dataset)
@@ -252,16 +274,54 @@ if args.train:
 
 ####################### analysis ######################
 
-if args.analysis:
-    raise NotImplementedError('Analysis has not been implemented')
-    analy: dict = input_yml['analysis']
+if args.hull:
+    logger.debug('Convex hull flag set')
 
-    if 'convex_hull' in analy.keys():
-        conv_hull: dict = analy['convex_hull']
+    hull_dir = TOP_DIR / 'hull_dir'
+    hull_dir.mkdir(exist_ok=True)
 
-        lattice = BCC(conv_hull['max_basis_size'])
-        ch_dataset = Dataset(end_members, lattice)
+    if 'hull' not in input_yml.keys():
+        raise KeyError(f"Convex hull section missing in input file")
 
-        ch_dataset.compositions = ch_dataset.enumerate_compositions()
-        ch_dataset.sublattices = ch_dataset.enumerate_sublattices()
-        ch_dataset.configurations = ch_dataset.enumerate_configurations()
+    hull: dict = input_yml['hull']
+    
+    lattice = BCC(hull['L'])
+
+    hull_dataset = Dataset(end_members)
+
+    all_compositions = hull_dataset.enumerate_compositions(hull['L'])
+    hull_dataset.compositions = all_compositions
+
+    logger.debug(f"Enumerated all compositions. Found {len(all_compositions)} possibilities")
+
+    hull_dataset.sublattices = hull_dataset.enumerate_sublattices(lattice)
+    num_sublattices = sum([len(sublat_list) for sublat_list in hull_dataset.sublattices.values()])
+
+    logger.debug(f"Enumerated all sublattices. Found {num_sublattices} possibilities")
+
+    logger.debug(f"Enumerating all configurations. This may take a while...") 
+
+    enum_configs_dict, enum_configs_list = hull_dataset.enumerate_configurations()
+
+    logger.debug(f"Enumerated all configurations. Found {len(enum_configs_list)} possibilities")
+
+    hull_dataset.add_configurations(enum_configs_list)
+    hull_dataset.sort_configurations()
+    hull_dataset.write_yaml(hull_dir / 'enumerated_configurations.yaml')
+
+    logger.debug(f"Wrote all enumerated configurations to {hull_dir / 'enumerated_configurations.yaml'}")
+
+    if 'expansion' not in hull.keys():
+        ce_path = TOP_DIR / 'expansion' / 'cluster_expansion.ce'
+    else:
+        ce_path = Path(hull['expansion'])
+    
+    if not ce_path.exists():
+        raise ValueError(f"[{ce_path}] File not found")  
+    
+    expansion = Expansion(hull_dataset)
+    expansion.read_expansion(ce_path)
+    expansion.predict_mixing_energies(hull_dataset)
+
+    plot_mixing_energy(hull_dir / 'convex_hull.png', end_members, hull_dataset)
+    write_mixing_energy(hull_dir / 'convex_hull.out', end_members, hull_dataset)

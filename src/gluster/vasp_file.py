@@ -142,7 +142,7 @@ class VaspPotcar(VaspFile):
         self.elements: list[str] = None
         self.zval: dict[str, float] = None
     
-    def load(self, dirpath: Path, dirnames: list[str] = None):
+    def load(self, dirpath: Path, dirnames: list[str]):
         self.lines = []
 
         self.dirnames = dirnames

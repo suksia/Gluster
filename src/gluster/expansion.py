@@ -13,7 +13,7 @@ logger = logging.getLogger('Gluster')
 
 
 class Expansion:
-    def __init__(self, dataset: Dataset, cutoffs: list[float], a0: float):
+    def __init__(self, dataset: Dataset = None, cutoffs: list[float] = None, a0: float = None):
         self.dataset = dataset
 
         self.cutoffs = cutoffs
@@ -87,7 +87,17 @@ class Expansion:
             f.write(str(self.cluster_expansion))
 
         self.cluster_expansion.write(write_dir / 'cluster_expansion.ce')
-        
+
+    def read_expansion(self, read_path: Path):
+        self.cluster_expansion = ClusterExpansion.read(read_path)
+
+    def predict_mixing_energies(self, dataset: Dataset):
+        if self.cluster_expansion is None:
+            raise RuntimeError("Cluster expansion does not exist")
+
+        for conf in dataset.configurations:
+            conf.expansion_energy = self.cluster_expansion.predict(conf.Atoms)
+
 
 def scan_cutoffs(order: int, cutoff_values: list[float], expansion: Expansion, write_dir: Path):
     if len(expansion.cutoffs) != order-2:

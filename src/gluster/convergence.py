@@ -50,10 +50,11 @@ logger.debug(f'Created benchmark directory at {TOP_DIR.as_posix()}')
 
 vasp_file_lines = {
     'incar': input_yml['incar'],
-    'kpoints': input_yml['kpoints'],
     'poscar': input_yml['poscar'],
     'potcar': input_yml['potcar'],
 }
+
+
 
 if 'convergence' not in input_yml.keys():
     raise KeyError('Missing convergence section in input file')

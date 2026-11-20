@@ -133,7 +133,7 @@ class Configuration:
             "coord_system": "Direct",
             "ions": ions})
 
-    def create_potcar(self, potcar_names: list[str] = None):
+    def create_potcar(self, potcar_dir: Path, potcar_names: list[str] = None):
         if self.poscar is None:
             raise RuntimeError("POSCAR must exist in order to create POTCAR so that the ion order is correct")
 
@@ -147,7 +147,7 @@ class Configuration:
                         names_in_poscar.append(nm)
                         break
         
-        self.potcar = VaspPotcar().load(names_in_poscar)
+        self.potcar = VaspPotcar().load(potcar_dir, names_in_poscar)
 
     def set_vasp_files(self, incar: VaspIncar = None, kpoints: VaspKpoints = None, poscar: VaspPoscar = None, potcar: VaspPotcar = None):
         if incar:
@@ -201,6 +201,7 @@ class Configuration:
         
         zval_mapping = self.potcar.zval
 
+        self.nelect = 0
         for sp, num in self.at_composition.items():
             self.nelect += zval_mapping[sp]*num
 

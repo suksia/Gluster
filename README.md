@@ -61,7 +61,7 @@ To run the enumeration, set the appropariate flag when running `gluster.py`.
 python src/gluster/gluster.py <input_yaml_path> -E
 ```
 
-A subdirectory `project-dir/enumeration` will be created containing the dataset files `enumerated_configurations.yaml` and `dft_dataset.yaml` with the following format. 
+A subdirectory `project-dir/enumeration/` will be created containing the dataset files `enumerated_configurations.yaml` and `dft_dataset.yaml` with the following format. 
 
 ```yaml
 <ID>:
@@ -132,7 +132,7 @@ Disordered cells should be much larger than ordered ones, so it is beneficial to
 
 It has been found that VASP does not give enough bands for certain ordered configurations when default settings are used. Specifically, NBANDS (computed internally by VASP) can lead to some configurations having no unoccupied bands, hindering accuracy and convergence. By default, VASP first allocates enough bands such that every one would be fully occupied, plus an extra. Then it adds some bands depending on the number of ions. The default settings are to add 1/2 bands per ion, with a minumum of 3 bands always added. These settings can be updated by the NBANDS key in the input YAML file. Please note, that some of the rounding operations may be different than VASP's internal functions. Also note that NBANDS is internally increased to be compatible with the choice of KPAR and NCORE. 
 
-_Gluster_ launches all VASP job steps in parallel using a pool of tasks allocated by Slurm in the subdirectory `project_dir/dft`. As calculations finish, the energy per atom is written to a file `project_dir/dft/<cid>/energy.out` and is added to a copy of the input dataset YAML file in the DFT subdirectory. If a configuration (matched only by ID) subdirectory already contains `energy.out`, VASP is skipped for this configuration and that energy from this file is used. This allows VASP to be restarted if the job ends prematurely, or if new configurations without computed energies have been added to an existing dataset YAML file.
+_Gluster_ launches all VASP job steps in parallel using a pool of tasks allocated by Slurm in the subdirectory `project_dir/dft/`. As calculations finish, the energy per atom is written to a file `project_dir/dft/<cid>/energy.out` and is added to a copy of the input dataset YAML file in the DFT subdirectory. If a configuration (matched only by ID) subdirectory already contains `energy.out`, VASP is skipped for this configuration and that energy from this file is used. This allows VASP to be restarted if the job ends prematurely, or if new configurations without computed energies have been added to an existing dataset YAML file.
 
 To ensure a correct and consistent set of energies are being used for cluster expansion fitting, always make sure to re-run vasp if any DFT settings have changed. This requires removing the energies from a dataset YAML file.
 
@@ -147,6 +147,26 @@ python src/gluster/gluster.py <input_yaml_path> -D
 After every configuration's energy has been calculated, all mixing energies are computed and written to `project_dir/dft_mixing_energies.out` and plotted in `project_dir/dft_mixing_energies.png`.
 
 # Step 3: Training a Cluster Expansion
+
+A cluster expansion requires a set of cluster diameter cutoffs for each order (pairs, triplets, ...). icet recommends starting with pairs and training a set of cluster expansions with gradually increasing cutoff distances, then comparing the models' RMSE, [BIC](https://en.wikipedia.org/wiki/Bayesian_information_criterion), and number of parameters. Once the pair cutoff distance has been established, the process can be repeated for triplets, then quadrupelets, and so on and so forth. High-order clusters should generally be avoided as they may make training more difficult or impossible. To perform a cutoff scan, add a section titled `expansion` to the input YAML file with the following format
+
+```yaml
+expansion:
+  dataset: <string, path-like; full path to the YAML file containing configurations with DFT energies; default=project_dir/dft/dft_dataset.yaml>
+  cutoffs: <list of floats; cutoffs to use for pairs, triplets, etc. when fitting cluster expansions>
+  scan: <list of start, stop, num values for the next order's scan range; a scan will always be done if included>
+```
+
+and run `gluster.py` with the appropriate flag.
+
+```bash
+python src/gluster/gluster.py <input_yaml_path> -T 
+```
+
+The scan data, plots of metrics, and cluster expansion properties are written to files in the subdirectory `project_dir/expansion/`. The DFT dataset mixing energies data are also recomputed and printed, this time also with the energies predicted by the current cluster expansion.
+
+# Step 4: Plotting the Convex Hull
+
 
 
 # Theory of Supercell Enumeration
@@ -173,4 +193,4 @@ At the local scale, a large basis starts to approximate a random alloy which can
 
 Enumerating all possible configurations produces many that are equivalent within some symmetry operation, and thus would yield the same DFT energies. For example, all configurations in any sublattice defined by these transformation matrices
 $$\mathbf{H} = \begin{pmatrix} 1 &  &  \\ 1 & 2 &   \\ 0 & 0 & 1 \end{pmatrix} \cong \begin{pmatrix} 1 &  &  \\ 1 & 1 &   \\ 0 & 1 & 2 \end{pmatrix} \cong \begin{pmatrix} 1 &  &  \\ 0 & 1 &   \\ 0 & 0 & 2 \end{pmatrix},$$
-are equivalent up to the rotational symmetry of a cubic lattice. As described in the Hart-Forcade algorithm, configurations can be de-duplicated by first removing any $\mathbf{H}$ that are rotationally symmetric given the point group, then for each remaining sublattice, remove any decorations that are translationally and rotationally symmetric, or super-periodic.
+are equivalent up to the rotational symmetry of a cubic lattice. As described in the Hart-Forcade algorithm, configurations can be de-duplicated by first removing any $\mathbf{H}$ that are rotationally symmetric given the point group symmetry, then for each remaining sublattice, remove any decorations that are translationally and rotationally symmetric, or super-periodic.
